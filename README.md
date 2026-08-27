@@ -11,6 +11,29 @@
 - 작업할 때만 레포를 clone하고 끝나면 삭제하여 로컬에 여러 프로젝트 코드를 쌓아두지 않아야 합니다.
 - 어떤 프로젝트를 언제 어떻게 세팅했는지 기록이 남아야 재작업·비교·감사(audit)가 가능합니다.
 
+## 현재 상태
+
+Phase 0~5(`docs/ROADMAP.md`)를 실사용 검증까지 완료했습니다.
+
+- 등록된 14개 레포 전부 GTM 스니펫 삽입 계획이 있음을 확인(정적 HTML 11개, Docusaurus 1개,
+  Astro Starlight 1개, Next.js/oh-my-homelab 1개)
+- 실제로 GA4 속성 + GTM 컨테이너를 자동 생성하고 PR을 만든 사례:
+  [shinkeonkim/my-portfolio#1](https://github.com/shinkeonkim/my-portfolio/pull/1),
+  [shinkeonkim/codekr#667](https://github.com/shinkeonkim/codekr/pull/667)
+- 남은 일: Google Ads Developer Token 승인 대기(라이브 검증 전), `/lens-report`(성과 리포트) 미착수
+
+## 빠른 시작
+
+```bash
+uv venv .venv && uv pip install -e . --python .venv/bin/python  # 최초 1회
+.venv/bin/lens project add https://github.com/org/repo --metadata-only
+.venv/bin/lens creds check          # Google 인증 상태 확인 (docs/SECURITY.md)
+.venv/bin/lens track sync <slug>    # 기본은 dry-run, --yes로 실제 진행
+```
+
+Claude Code 안에서는 CLI 대신 `/lens-add-project`, `/lens-sync`, `/lens-status` 같은
+슬래시 커맨드를 씁니다 (`.claude/commands/`, [`docs/COMMANDS.md`](docs/COMMANDS.md) 참고).
+
 ## 문서
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 전체 구조, 컴포넌트, 워크플로우
@@ -18,9 +41,10 @@
 - [`docs/COMMANDS.md`](docs/COMMANDS.md) — Claude Code 커맨드 ↔ CLI 서브커맨드 매핑
 - [`docs/ADAPTERS.md`](docs/ADAPTERS.md) — 배포 방식별 어댑터(Cloudflare Workers / oh-my-homelab) 명세
 - [`docs/SECURITY.md`](docs/SECURITY.md) — 자격증명 보관·설정 매뉴얼
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — 단계별 구현 계획
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — 에러 타입별 원인·해결 절차
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — 단계별 구현 계획과 진행 상황
 
-## 초기 추적 대상 (REQUEST.md 기준)
+## 추적 대상 (REQUEST.md 기준)
 
 Cloudflare Workers 배포:
 

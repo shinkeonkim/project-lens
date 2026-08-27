@@ -28,7 +28,9 @@ from project_lens.google.auth import (
 from project_lens.registry.db import connect
 from project_lens.registry.repository import (
     finish_run,
+    get_latest_run,
     get_project,
+    get_run,
     get_tracking_config,
     list_projects,
     set_project_status,
@@ -132,19 +134,37 @@ def project_list() -> None:
 @project.command("show")
 @click.argument("slug")
 def project_show(slug: str) -> None:
-    """단일 프로젝트의 상세 정보를 출력합니다."""
+    """단일 프로젝트의 상세 정보 + 가장 최근 실행 이력을 출력합니다."""
 
     conn = connect()
     try:
         record = get_project(conn, slug)
+        if record is None:
+            raise click.ClickException(f"등록되지 않은 프로젝트입니다: {slug}")
+        latest_run = get_latest_run(conn, record.id)
     finally:
         conn.close()
 
-    if record is None:
-        raise click.ClickException(f"등록되지 않은 프로젝트입니다: {slug}")
-
     for field in record.__dataclass_fields__:
         click.echo(f"{field}: {getattr(record, field)}")
+
+    click.echo("")
+    click.echo("최근 실행:")
+    if latest_run is None:
+        click.echo("  없음 (아직 lens track sync --yes를 실행한 적 없음)")
+        return
+
+    click.echo(f"  run_id: {latest_run.id} ({latest_run.run_type}, {latest_run.status})")
+    if latest_run.pr_url:
+        click.echo(f"  PR: {latest_run.pr_url}")
+    if latest_run.summary:
+        click.echo(f"  요약: {latest_run.summary}")
+    if latest_run.status == "failed":
+        click.echo(f"  에러: {latest_run.error_code} — {latest_run.error_summary}")
+        click.echo(
+            f"  자세한 원인/해결법은 docs/TROUBLESHOOTING.md의 '{latest_run.error_code}' "
+            f"항목 또는 `lens logs show {latest_run.id}`를 참고하세요."
+        )
 
 
 @project.command("set-site-url")
@@ -162,6 +182,49 @@ def project_set_site_url(slug: str, site_url: str) -> None:
         conn.close()
 
     click.echo(f"{slug}의 site_url을 설정했습니다: {site_url}")
+
+
+_TROUBLESHOOTING_HINTS = {
+    "AuthError": "gh/Google 인증이 필요합니다 — `lens creds check`로 상태를 확인하세요.",
+    "RepoAccessError": "레포 접근이 안 됩니다 — URL, 조직 접근 권한(`gh auth status`)을 확인하세요.",
+    "AdapterDetectionError": (
+        "배포 방식을 감지하지 못했습니다 — 등록된 deployment_type이 실제와 맞는지 확인하세요."
+    ),
+    "GoogleAPIError": (
+        "GA4/GTM/Ads API 호출이 실패했습니다 — 계정 권한(`lens creds accounts`)을 확인하세요."
+    ),
+    "DeployError": "git/gh 작업(브랜치·커밋·PR·이슈·저장소 변수)이 실패했습니다.",
+    "ValidationError": "사전 조건이 부족합니다 — 에러 메시지에 적힌 다음 명령을 실행하세요.",
+}
+
+
+@main.group()
+def logs() -> None:
+    """실행 이력 조회."""
+
+
+@logs.command("show")
+@click.argument("run_id", type=int)
+def logs_show(run_id: int) -> None:
+    """RUN_ID 실행의 상세 정보와 문제 해결 힌트를 보여줍니다."""
+
+    conn = connect()
+    try:
+        run = get_run(conn, run_id)
+    finally:
+        conn.close()
+
+    if run is None:
+        raise click.ClickException(f"존재하지 않는 run_id입니다: {run_id}")
+
+    for field in run.__dataclass_fields__:
+        click.echo(f"{field}: {getattr(run, field)}")
+
+    if run.status == "failed" and run.error_code:
+        hint = _TROUBLESHOOTING_HINTS.get(run.error_code)
+        click.echo("")
+        click.echo(f"힌트: {hint or '알 수 없는 에러 타입입니다.'}")
+        click.echo(f"자세한 절차는 docs/TROUBLESHOOTING.md의 '{run.error_code}' 항목을 참고하세요.")
 
 
 @main.group()

@@ -134,6 +134,14 @@ def get_run(conn: sqlite3.Connection, run_id: int) -> DeployRun | None:
     return DeployRun.from_row(row) if row else None
 
 
+def get_latest_run(conn: sqlite3.Connection, project_id: int) -> DeployRun | None:
+    row = conn.execute(
+        "SELECT * FROM deploy_runs WHERE project_id = ? ORDER BY id DESC LIMIT 1",
+        (project_id,),
+    ).fetchone()
+    return DeployRun.from_row(row) if row else None
+
+
 def upsert_tracking_config(
     conn: sqlite3.Connection,
     *,

@@ -5,6 +5,7 @@ import pytest
 from project_lens.registry.db import connect
 from project_lens.registry.repository import (
     finish_run,
+    get_latest_run,
     get_project,
     get_run,
     get_tracking_config,
@@ -311,3 +312,36 @@ def test_upsert_tracking_config_ads_fields_replace_not_merge(conn):
     assert updated.ads_conversion_action_ids == (
         '["customers/111/conversionActions/1", "customers/111/conversionActions/2"]'
     )
+
+
+def test_get_latest_run_returns_most_recent(conn):
+    project_record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+    )
+
+    first_run = start_run(conn, project_id=project_record.id, run_type="sync")
+    finish_run(conn, first_run, status="success")
+    second_run = start_run(conn, project_id=project_record.id, run_type="sync")
+    finish_run(conn, second_run, status="failed", error_code="GoogleAPIError")
+
+    latest = get_latest_run(conn, project_record.id)
+
+    assert latest.id == second_run
+    assert latest.status == "failed"
+
+
+def test_get_latest_run_returns_none_when_no_runs(conn):
+    project_record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+    )
+    assert get_latest_run(conn, project_record.id) is None
