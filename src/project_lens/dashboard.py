@@ -42,7 +42,20 @@ def render_dashboard_html(rows: list[DashboardRow], generated_at: str) -> str:
     merged = sum(1 for r in rows if r.pr_state == "MERGED")
     open_prs = sum(1 for r in rows if r.pr_state == "OPEN")
 
+    ga4_rows = [r for r in rows if r.ga4_active_users_7d is not None]
+    total_active_users = sum(int(r.ga4_active_users_7d) for r in ga4_rows)
+    total_sessions = sum(int(r.ga4_sessions_7d or "0") for r in ga4_rows)
+
     cards = "\n".join(_render_card(r) for r in sorted(rows, key=lambda r: r.slug))
+    ga4_summary_table = _render_ga4_summary_table(ga4_rows)
+    ga4_totals_stats = (
+        f'<div class="stat"><span class="stat-value">{total_active_users}</span>'
+        f'<span class="stat-label">합계 방문자(7일)</span></div>\n'
+        f'  <div class="stat"><span class="stat-value">{total_sessions}</span>'
+        f'<span class="stat-label">합계 세션(7일)</span></div>'
+        if ga4_rows
+        else ""
+    )
 
     return f"""<!doctype html>
 <html lang="ko">
@@ -66,7 +79,10 @@ def render_dashboard_html(rows: list[DashboardRow], generated_at: str) -> str:
   <div class="stat warn"><span class="stat-value">{needs_attention}</span><span class="stat-label">확인 필요</span></div>
   <div class="stat"><span class="stat-value">{merged}</span><span class="stat-label">PR 머지됨</span></div>
   <div class="stat"><span class="stat-value">{open_prs}</span><span class="stat-label">PR 대기</span></div>
+  {ga4_totals_stats}
 </section>
+
+{ga4_summary_table}
 
 <section class="cards">
 {cards}
@@ -79,6 +95,32 @@ def render_dashboard_html(rows: list[DashboardRow], generated_at: str) -> str:
 </body>
 </html>
 """
+
+
+def _render_ga4_summary_table(ga4_rows: list[DashboardRow]) -> str:
+    """GA4 속성이 프로젝트마다 따로 떨어져 있어 콘솔을 하나씩 열어봐야 하는 문제를 없애기
+    위한 표. 트래픽이 많은 순으로 정렬해 어떤 사이트를 먼저 봐야 할지 한눈에 보여준다."""
+
+    if not ga4_rows:
+        return ""
+
+    sorted_rows = sorted(ga4_rows, key=lambda r: int(r.ga4_active_users_7d), reverse=True)
+    body_rows = "\n".join(
+        f'<tr><td>{html.escape(r.slug)}</td>'
+        f'<td class="num">{html.escape(r.ga4_active_users_7d)}</td>'
+        f'<td class="num">{html.escape(r.ga4_sessions_7d or "0")}</td>'
+        f'<td>{html.escape(r.ga4_measurement_id or "-")}</td></tr>'
+        for r in sorted_rows
+    )
+    return f"""<section class="ga4-summary">
+  <h2>GA4 요약 (방문자 많은 순)</h2>
+  <table>
+    <thead><tr><th>프로젝트</th><th class="num">방문자(7일)</th><th class="num">세션(7일)</th><th>측정 ID</th></tr></thead>
+    <tbody>
+{body_rows}
+    </tbody>
+  </table>
+</section>"""
 
 
 def _render_card(r: DashboardRow) -> str:
@@ -198,6 +240,19 @@ header h1 { margin-bottom: 0.25rem; font-size: 1.5rem; }
 .stat-label { display: block; font-size: 0.8rem; color: var(--muted); }
 .stat.ok .stat-value { color: var(--ok); }
 .stat.warn .stat-value { color: var(--warn); }
+.ga4-summary {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+}
+.ga4-summary h2 { font-size: 1rem; margin: 0 0 0.75rem; }
+.ga4-summary table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.ga4-summary th, .ga4-summary td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+.ga4-summary th.num, .ga4-summary td.num { text-align: right; }
+.ga4-summary tbody tr:last-child td { border-bottom: none; }
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

@@ -78,3 +78,22 @@ def test_render_escapes_html_in_summary():
 def test_render_empty_rows_does_not_crash():
     html = render_dashboard_html([], generated_at="2026-08-28T00:00:00+00:00")
     assert "<span class=\"stat-value\">0</span>" in html
+
+
+def test_render_ga4_summary_table_sorted_by_active_users_desc():
+    rows = [
+        _row(slug="low-traffic", ga4_active_users_7d="1", ga4_sessions_7d="1"),
+        _row(slug="high-traffic", ga4_active_users_7d="50", ga4_sessions_7d="60"),
+    ]
+    html = render_dashboard_html(rows, generated_at="2026-08-28T00:00:00+00:00")
+
+    assert "GA4 요약" in html
+    assert html.index("high-traffic") < html.index("low-traffic")
+    assert "<span class=\"stat-value\">51</span>" in html  # 합계 방문자(7일) = 1 + 50
+
+
+def test_render_ga4_summary_table_omitted_when_no_ga4_data():
+    row = _row(ga4_active_users_7d=None, ga4_sessions_7d=None)
+    html = render_dashboard_html([row], generated_at="2026-08-28T00:00:00+00:00")
+
+    assert "GA4 요약" not in html
