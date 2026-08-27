@@ -6,16 +6,20 @@
 
 ## 커맨드 목록
 
-| 커맨드 | CLI 매핑 | 설명 |
-|---|---|---|
-| `/lens-add-project <github_url> [--deploy-type=cloudflare_workers\|oh_my_homelab]` | `lens project add <url> [...]` | 신규 프로젝트 등록 + 최초 트래킹 세팅(GA4/GTM 생성, 스니펫 삽입, PR 생성) |
-| `/lens-sync <slug>` | `lens track sync <slug>` | 기존 트래킹 설정 재검증/재동기화 (drift 감지, 필요 시 재삽입) |
-| `/lens-status [slug]` | `lens project status [slug]` | 프로젝트별 상태(마지막 동기화, GA4 수신 여부, 배포 상태) 표시 |
-| `/lens-list` | `lens project list` | 전체 등록 프로젝트를 표 형태로 출력 |
-| `/lens-remove <slug>` | `lens project remove <slug>` | soft delete (status=`archived`), 이력은 보존 |
-| `/lens-report <slug> [--range=7d\|30d]` | `lens track report <slug> --range ...` | GA4/Ads 성과 지표 요약 (방문자수, 전환율, CTR, 광고비 등) |
-| `/lens-creds-setup` | `lens creds check` / 대화형 안내 | `credentials_meta` 상태 점검, 누락/만료 항목에 대한 [`SECURITY.md`](SECURITY.md) 절차 안내 |
-| `/lens-logs <run_id>` | `lens logs show <run_id>` | 실행 로그 + 에러 타입별 문제 해결 가이드 출력 |
+`구현` 열이 없는 행은 아직 CLI 쪽 기능이 없어 커맨드 파일도 만들지 않은 상태입니다
+(계획만 있음). docs/ROADMAP.md에서 어느 Phase에 해당하는지 확인하세요.
+
+| 커맨드 | CLI 매핑 | 설명 | 구현 |
+|---|---|---|---|
+| `/lens-add-project <github_url> [--deployment-type=...] [--site-url=...]` | `lens project add <url> --metadata-only [...]` | 신규 프로젝트를 레지스트리에 등록 (메타데이터만 — 트래킹 세팅은 `/lens-sync`에서) | ✅ Phase 0 |
+| `/lens-sync <slug> [--gtm-id=...]` | `lens track sync <slug> [--gtm-id ...] [--yes]` | GTM 스니펫 삽입 + PR 생성. `--gtm-id` 생략 시 GA4/GTM API로 자동 프로비저닝 | ✅ Phase 1-2 |
+| `/lens-link-ads <slug> --customer-id=...` | `lens track link-ads <slug> --customer-id ... [--yes]` | GA4 속성을 Google Ads 계정과 연결하고, Developer Token이 있으면 전환 액션도 생성 | ✅ Phase 3 (라이브 미검증) |
+| `/lens-status <slug>` | `lens project show <slug>` | 프로젝트 등록 메타데이터 표시 (동기화/배포 헬스체크는 미구현) | ✅ Phase 0 (부분) |
+| `/lens-list` | `lens project list` | 전체 등록 프로젝트를 표 형태로 출력 | ✅ Phase 0 |
+| `/lens-creds-setup` | `lens creds check` / `init` / `accounts` / `set-accounts` | Google/Ads 자격증명 상태 점검, 누락 항목에 대한 [`SECURITY.md`](SECURITY.md) 절차 안내 | ✅ Phase 2-3 |
+| `/lens-remove <slug>` | `lens project remove <slug>` | soft delete (status=`archived`), 이력은 보존 | ⏳ 미구현 |
+| `/lens-report <slug> [--range=7d\|30d]` | `lens track report <slug> --range ...` | GA4/Ads 성과 지표 요약 (방문자수, 전환율, CTR, 광고비 등) | ⏳ Phase 3 잔여 작업 |
+| `/lens-logs <run_id>` | `lens logs show <run_id>` | 실행 로그 + 에러 타입별 문제 해결 가이드 출력 (지금은 `deploy_runs` 테이블을 직접 조회) | ⏳ 미구현 |
 
 ## 설계 원칙
 

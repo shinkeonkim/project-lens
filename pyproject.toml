@@ -9,6 +9,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2",
     "google-api-python-client>=2.130",
     "google-analytics-admin>=0.22",
+    "google-ads>=25.0",
     "keyring>=25.0",
 ]
 

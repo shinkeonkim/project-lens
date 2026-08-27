@@ -17,6 +17,7 @@ from project_lens.config import home_dir
 class Settings:
     ga4_account_id: str | None = None
     gtm_account_id: str | None = None
+    ads_login_customer_id: str | None = None
 
 
 def _settings_path() -> Path:

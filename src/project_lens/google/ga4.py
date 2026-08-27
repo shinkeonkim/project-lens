@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from google.analytics.admin_v1beta import AnalyticsAdminServiceClient
-from google.analytics.admin_v1beta.types import DataStream, Property
+from google.analytics.admin_v1beta.types import DataStream, GoogleAdsLink, Property
 from google.api_core.exceptions import GoogleAPICallError
 from google.oauth2.credentials import Credentials
 
@@ -32,6 +32,12 @@ class Ga4Property:
 class Ga4Stream:
     id: str
     measurement_id: str
+
+
+@dataclass(frozen=True)
+class Ga4GoogleAdsLink:
+    name: str  # "properties/123/googleAdsLinks/456"
+    customer_id: str
 
 
 def build_client(credentials: Credentials) -> AnalyticsAdminServiceClient:
@@ -111,3 +117,25 @@ def find_or_create_web_stream(
         )
     except GoogleAPICallError as exc:
         raise GoogleAPIError(f"GA4 데이터 스트림 생성/조회 실패({display_name}): {exc}") from exc
+
+
+def ensure_google_ads_link(
+    client: AnalyticsAdminServiceClient, *, property_name: str, customer_id: str
+) -> Ga4GoogleAdsLink:
+    """property_name과 customer_id 사이의 Google Ads 연결을 찾거나 만든다.
+
+    Developer Token 없이 GA4 Admin API만으로 동작한다 (Google Ads API와는 별개 기능).
+    """
+
+    try:
+        existing = list(client.list_google_ads_links(parent=property_name))
+        for link in existing:
+            if link.customer_id == customer_id:
+                return Ga4GoogleAdsLink(name=link.name, customer_id=link.customer_id)
+
+        created = client.create_google_ads_link(
+            parent=property_name, google_ads_link=GoogleAdsLink(customer_id=customer_id)
+        )
+        return Ga4GoogleAdsLink(name=created.name, customer_id=created.customer_id)
+    except GoogleAPICallError as exc:
+        raise GoogleAPIError(f"GA4-Ads 연결 생성/조회 실패(customer_id={customer_id}): {exc}") from exc

@@ -49,10 +49,25 @@
 
 ## Phase 3 — Google Ads 연동
 
-- `lens creds init --provider google-ads` (Developer Token 승인 필요 — 승인 리드타임을
-  고려해 Phase 2와 병행 신청 권장)
-- `ads.py`: 전환 액션 생성/조회, GA4 ↔ Ads 연결 상태 확인
-- `/lens-report`: GA4 방문자/세션/이탈률 + Ads CTR/전환율/광고비 통합 리포트
+- [x] `lens creds init --provider google-ads --developer-token ... [--login-customer-id ...]`
+      — Developer Token은 keyring, login_customer_id는 settings.json에 저장
+- [x] `google/auth.py` `SCOPES`에 `adwords` 스코프 추가 (기존 인증이 있었다면 재인증 필요)
+- [x] `ga4.py`: `ensure_google_ads_link` — GA4 속성 ↔ Ads customer_id 연결 find-or-create
+      (GA4 Admin API만으로 동작, Developer Token 불필요)
+- [x] `ads.py`: `find_or_create_conversion_action` — 웹페이지 전환 액션 find-or-create.
+      설치된 `google-ads`(v25) 패키지에서 실제 타입을 직접 import해 구현·테스트함
+      (`client.get_type()`/`.enums`는 유효한 credentials 없이는 검증할 방법이 없어 사용 안 함)
+- [x] `lens track link-ads <slug> --customer-id <ID> [--yes]` — dry-run 기본, GA4-Ads 연결은
+      항상 시도하고 Developer Token이 있을 때만 전환 액션도 생성. `tracking_configs`의
+      `ads_customer_id`/`ads_conversion_action_ids`에 결과 저장
+- [ ] **라이브 검증 미완료**: 사용자가 아직 Google Ads 계정/Developer Token이 없어
+      (신청 진행 중, 승인까지 수일 소요 예상) `ensure_google_ads_link`/
+      `find_or_create_conversion_action` 둘 다 fake 기반 단위 테스트로만 검증됨.
+      Phase 2의 GA4 API 실사용 검증에서 문서만으로 예측한 호출 방식이 실제와 2군데
+      달랐던 전례가 있으므로, Ads 계정이 생기는 대로 반드시 `lens track link-ads`
+      실사용 검증을 거쳐야 함
+- [ ] `/lens-report`: GA4 방문자/세션/이탈률 + Ads CTR/전환율/광고비 통합 리포트
+      (착수 전 — 의미 있는 리포트를 보려면 실제 트래픽/전환 데이터가 어느 정도 쌓여야 함)
 
 ## Phase 4 — oh-my-homelab 어댑터
 

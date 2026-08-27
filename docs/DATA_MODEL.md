@@ -77,19 +77,15 @@ DB 위치: `~/.project-lens/registry.sqlite3` (레포 바깥, git 추적 대상 
 | new_value | TEXT | |
 | changed_at | TEXT | |
 
-## credentials_meta
+## credentials_meta — 계획 변경, SQLite 테이블로 구현하지 않음
 
-**비밀 값 자체는 저장하지 않음.** 어떤 자격증명이 언제 마지막으로 검증됐는지만 추적해
-`/lens-creds-setup`이 만료/누락을 미리 경고할 수 있게 함.
-
-| 컬럼 | 타입 | 설명 |
-|---|---|---|
-| id | INTEGER PK | |
-| provider | TEXT | `github` \| `google_ga4` \| `google_gtm` \| `google_ads` |
-| scope | TEXT | 필요한 OAuth scope 등 |
-| last_verified_at | TEXT | |
-| expires_at | TEXT NULL | 알 수 있는 경우만 |
-| status | TEXT | `ok` \| `expiring_soon` \| `missing` \| `invalid` |
+원래 계획은 자격증명 상태(마지막 검증 시각, 만료 여부)를 SQLite 테이블로 추적하는
+것이었으나, 실제 구현에서는 더 단순한 방식을 택했다: `lens creds check`가
+`keyring.get_password(...)`(Google OAuth, Ads Developer Token 존재 여부)와
+`~/.project-lens/settings.json`(계정 ID 설정 여부)을 그때그때 직접 조회해 보여준다.
+비밀 값이 실제로 어디 있는지(keyring)와 상태를 보여주는 곳을 분리하지 않아 더
+단순하고, "DB에는 있다는데 실제로는 만료됐다" 같은 동기화 문제도 없다. 이력(언제
+발급했는지 등)이 필요해지면 그때 테이블을 추가한다.
 
 ## 마이그레이션
 

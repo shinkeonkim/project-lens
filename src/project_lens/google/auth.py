@@ -21,6 +21,7 @@ from project_lens.errors import AuthError
 
 _KEYRING_SERVICE = "project-lens"
 _KEYRING_USERNAME = "google-oauth-credentials"
+_KEYRING_ADS_DEVELOPER_TOKEN_USERNAME = "google-ads-developer-token"
 
 SCOPES = [
     "https://www.googleapis.com/auth/analytics.edit",
@@ -28,6 +29,10 @@ SCOPES = [
     "https://www.googleapis.com/auth/tagmanager.edit.containers",
     "https://www.googleapis.com/auth/tagmanager.edit.containerversions",
     "https://www.googleapis.com/auth/tagmanager.publish",
+    # Google Ads API 전용 스코프. 이 스코프가 없는 refresh token으로는 Ads API 호출이
+    # "insufficient authentication scopes"로 실패한다 — 기존에 인증했다면 다시
+    # `lens creds init --provider google`을 실행해야 한다.
+    "https://www.googleapis.com/auth/adwords",
 ]
 
 
@@ -82,3 +87,21 @@ def clear_credentials() -> None:
 
 def _store_credentials(credentials: Credentials) -> None:
     keyring.set_password(_KEYRING_SERVICE, _KEYRING_USERNAME, credentials.to_json())
+
+
+def store_ads_developer_token(token: str) -> None:
+    keyring.set_password(_KEYRING_SERVICE, _KEYRING_ADS_DEVELOPER_TOKEN_USERNAME, token)
+
+
+def load_ads_developer_token() -> str:
+    token = keyring.get_password(_KEYRING_SERVICE, _KEYRING_ADS_DEVELOPER_TOKEN_USERNAME)
+    if token is None:
+        raise AuthError(
+            "Google Ads Developer Token이 없습니다. "
+            "`lens creds init --provider google-ads --developer-token <TOKEN>`을 먼저 실행하세요."
+        )
+    return token
+
+
+def has_ads_developer_token() -> bool:
+    return keyring.get_password(_KEYRING_SERVICE, _KEYRING_ADS_DEVELOPER_TOKEN_USERNAME) is not None

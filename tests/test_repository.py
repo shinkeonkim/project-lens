@@ -267,3 +267,47 @@ def test_get_tracking_config_missing_returns_none(conn):
         default_branch="main",
     )
     assert get_tracking_config(conn, project_record.id) is None
+
+
+def test_upsert_tracking_config_defaults_ads_fields_to_empty(conn):
+    project_record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+    )
+
+    created = upsert_tracking_config(conn, project_id=project_record.id, ga4_property_id="1000")
+
+    assert created.ads_customer_id is None
+    assert created.ads_conversion_action_ids == "[]"
+
+
+def test_upsert_tracking_config_ads_fields_replace_not_merge(conn):
+    project_record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+    )
+
+    upsert_tracking_config(
+        conn,
+        project_id=project_record.id,
+        ads_customer_id="1112223333",
+        ads_conversion_action_ids='["customers/111/conversionActions/1"]',
+    )
+    updated = upsert_tracking_config(
+        conn,
+        project_id=project_record.id,
+        ads_conversion_action_ids='["customers/111/conversionActions/1", "customers/111/conversionActions/2"]',
+    )
+
+    assert updated.ads_customer_id == "1112223333"  # None으로 넘긴 필드는 유지됨
+    assert updated.ads_conversion_action_ids == (
+        '["customers/111/conversionActions/1", "customers/111/conversionActions/2"]'
+    )

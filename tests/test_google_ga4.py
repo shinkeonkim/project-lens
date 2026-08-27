@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from google.analytics.admin_v1beta.types import Account, DataStream, Property
+from google.analytics.admin_v1beta.types import Account, DataStream, GoogleAdsLink, Property
 
 import project_lens.google.ga4 as ga4
 
@@ -17,9 +17,11 @@ class FakeGa4Client:
         self.accounts = [Account(name="accounts/111", display_name="shinkeonkim")]
         self.properties: dict[str, list[Property]] = {}
         self.streams: dict[str, list[DataStream]] = {}
+        self.google_ads_links: dict[str, list[GoogleAdsLink]] = {}
         self._next_id = 1000
         self.create_property_calls = 0
         self.create_data_stream_calls = 0
+        self.create_google_ads_link_calls = 0
 
     def _next(self) -> int:
         self._next_id += 1
@@ -60,6 +62,19 @@ class FakeGa4Client:
             ),
         )
         self.streams.setdefault(parent, []).append(created)
+        return created
+
+    def list_google_ads_links(self, parent: str):
+        return list(self.google_ads_links.get(parent, []))
+
+    def create_google_ads_link(self, parent: str, google_ads_link: GoogleAdsLink):
+        self.create_google_ads_link_calls += 1
+        link_id = self._next()
+        created = GoogleAdsLink(
+            name=f"{parent}/googleAdsLinks/{link_id}",
+            customer_id=google_ads_link.customer_id,
+        )
+        self.google_ads_links.setdefault(parent, []).append(created)
         return created
 
 
@@ -113,4 +128,26 @@ def test_find_or_create_web_stream_is_idempotent_by_uri():
     )
 
     assert client.create_data_stream_calls == 1
+    assert first == second
+
+
+def test_ensure_google_ads_link_creates_when_missing():
+    client = FakeGa4Client()
+    prop = ga4.find_or_create_property(client, account_id="111", display_name="dice-art")
+
+    link = ga4.ensure_google_ads_link(client, property_name=prop.name, customer_id="1112223333")
+
+    assert client.create_google_ads_link_calls == 1
+    assert link.customer_id == "1112223333"
+    assert link.name.startswith(prop.name)
+
+
+def test_ensure_google_ads_link_is_idempotent():
+    client = FakeGa4Client()
+    prop = ga4.find_or_create_property(client, account_id="111", display_name="dice-art")
+
+    first = ga4.ensure_google_ads_link(client, property_name=prop.name, customer_id="1112223333")
+    second = ga4.ensure_google_ads_link(client, property_name=prop.name, customer_id="1112223333")
+
+    assert client.create_google_ads_link_calls == 1
     assert first == second

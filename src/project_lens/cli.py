@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 
 import click
@@ -14,12 +15,20 @@ from project_lens.github.repo_ops import (
     create_pull_request,
     push_branch,
 )
-from project_lens.google import ga4, gtm
-from project_lens.google.auth import has_stored_credentials, load_credentials, run_oauth_flow
+from project_lens.google import ads, ga4, gtm
+from project_lens.google.auth import (
+    has_ads_developer_token,
+    has_stored_credentials,
+    load_ads_developer_token,
+    load_credentials,
+    run_oauth_flow,
+    store_ads_developer_token,
+)
 from project_lens.registry.db import connect
 from project_lens.registry.repository import (
     finish_run,
     get_project,
+    get_tracking_config,
     list_projects,
     set_project_status,
     set_site_url,
@@ -160,13 +169,38 @@ def creds() -> None:
 
 
 @creds.command("init")
-@click.option("--provider", type=click.Choice(["google"]), required=True)
-def creds_init(provider: str) -> None:
+@click.option("--provider", type=click.Choice(["google", "google-ads"]), required=True)
+@click.option(
+    "--developer-token",
+    default=None,
+    help="google-ads 전용: Google Ads API Developer Token (도구 및 설정 > API 센터에서 확인).",
+)
+@click.option(
+    "--login-customer-id",
+    default=None,
+    help="google-ads 전용: MCC(관리자 계정) 아래에서 접근할 때 필요한 로그인 고객 ID.",
+)
+def creds_init(provider: str, developer_token: str | None, login_customer_id: str | None) -> None:
     """PROVIDER 인증을 최초 1회 수행하고 OS 키체인에 저장합니다."""
 
     if provider == "google":
         run_oauth_flow()
         click.echo("Google 인증 완료. 자격증명은 OS 키체인에 저장되었습니다.")
+        return
+
+    if provider == "google-ads":
+        if not developer_token:
+            raise click.ClickException("google-ads 인증에는 --developer-token이 필요합니다.")
+        store_ads_developer_token(developer_token)
+        if login_customer_id:
+            settings = load_settings()
+            settings.ads_login_customer_id = login_customer_id
+            save_settings(settings)
+        click.echo(
+            "Google Ads Developer Token을 저장했습니다. "
+            "adwords 스코프가 없는 기존 인증이라면 `lens creds init --provider google`을 "
+            "다시 실행해 재인증하세요."
+        )
 
 
 @creds.command("check")
@@ -177,6 +211,8 @@ def creds_check() -> None:
     click.echo(f"google oauth: {'ok' if has_stored_credentials() else 'missing'}")
     click.echo(f"ga4_account_id: {settings.ga4_account_id or '(미설정)'}")
     click.echo(f"gtm_account_id: {settings.gtm_account_id or '(미설정)'}")
+    click.echo(f"google ads developer token: {'ok' if has_ads_developer_token() else 'missing'}")
+    click.echo(f"ads_login_customer_id: {settings.ads_login_customer_id or '(미설정, MCC 아닐 시 불필요)'}")
 
 
 @creds.command("accounts")
@@ -306,6 +342,111 @@ def track_sync(slug: str, gtm_id: str | None, yes: bool, keep_workspace: bool) -
                     error_code=type(exc).__name__,
                     error_summary=str(exc),
                 )
+            raise
+    finally:
+        conn.close()
+
+
+@track.command("link-ads")
+@click.argument("slug")
+@click.option(
+    "--customer-id",
+    required=True,
+    help="연결할 Google Ads customer ID (하이픈 없이 숫자만, 예: 1112223333).",
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    help=(
+        "실제로 GA4-Ads 연결을 생성합니다 (Developer Token이 있으면 전환 액션도 함께). "
+        "생략하면 계획만 보여주고 종료합니다(dry-run)."
+    ),
+)
+def track_link_ads(slug: str, customer_id: str, yes: bool) -> None:
+    """SLUG의 GA4 속성을 Google Ads customer_id와 연결합니다.
+
+    사전에 `lens track sync`로 GA4 속성이 만들어져 있어야 합니다. Developer Token이
+    등록돼 있으면(`lens creds init --provider google-ads`) 전환 액션도 함께 생성합니다 —
+    없으면 GA4-Ads 연결만 하고 건너뜁니다.
+    """
+
+    conn = connect()
+    run_id: int | None = None
+    try:
+        proj = get_project(conn, slug)
+        if proj is None:
+            raise click.ClickException(f"등록되지 않은 프로젝트입니다: {slug}")
+
+        tracking = get_tracking_config(conn, proj.id)
+        if tracking is None or not tracking.ga4_property_id:
+            raise click.ClickException(
+                f"{slug}에 GA4 속성이 없습니다. 먼저 `lens track sync {slug} --yes`로 "
+                "GA4/GTM을 세팅하세요."
+            )
+
+        ads_ready = has_ads_developer_token()
+
+        if not yes:
+            click.echo(
+                f"[dry-run] {slug}: GA4 속성 properties/{tracking.ga4_property_id} ↔ "
+                f"Ads customer {customer_id} 연결 예정."
+            )
+            if ads_ready:
+                click.echo("  Developer Token이 있어 전환 액션도 함께 생성합니다.")
+            else:
+                click.echo(
+                    "  Developer Token이 없어 전환 액션 생성은 건너뜁니다 "
+                    "(`lens creds init --provider google-ads`로 등록 가능)."
+                )
+            return
+
+        run_id = start_run(conn, project_id=proj.id, run_type="sync")
+        try:
+            credentials = load_credentials()
+            ga4_client = ga4.build_client(credentials)
+            link = ga4.ensure_google_ads_link(
+                ga4_client,
+                property_name=f"properties/{tracking.ga4_property_id}",
+                customer_id=customer_id,
+            )
+
+            conversion_action_resource_name = None
+            if ads_ready:
+                developer_token = load_ads_developer_token()
+                settings = load_settings()
+                ads_client = ads.build_client(
+                    credentials,
+                    developer_token=developer_token,
+                    login_customer_id=settings.ads_login_customer_id,
+                )
+                conversion_action = ads.find_or_create_conversion_action(
+                    ads_client, customer_id=customer_id, name=f"{proj.slug} conversion"
+                )
+                conversion_action_resource_name = conversion_action.resource_name
+
+            existing_ids = json.loads(tracking.ads_conversion_action_ids or "[]")
+            if (
+                conversion_action_resource_name
+                and conversion_action_resource_name not in existing_ids
+            ):
+                existing_ids.append(conversion_action_resource_name)
+
+            upsert_tracking_config(
+                conn,
+                project_id=proj.id,
+                ads_customer_id=customer_id,
+                ads_conversion_action_ids=json.dumps(existing_ids),
+            )
+
+            summary = f"GA4-Ads 연결 완료 ({link.name})"
+            if conversion_action_resource_name:
+                summary += f", 전환 액션: {conversion_action_resource_name}"
+            finish_run(conn, run_id, status="success", summary=summary)
+            click.echo(summary)
+        except LensError as exc:
+            finish_run(
+                conn, run_id, status="failed", error_code=type(exc).__name__, error_summary=str(exc)
+            )
             raise
     finally:
         conn.close()

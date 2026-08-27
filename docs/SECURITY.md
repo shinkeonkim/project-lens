@@ -68,10 +68,29 @@ lens creds check           # 전체 상태 확인
 ## 3. Google Ads Developer Token
 
 Google Ads API는 OAuth 외에 **Developer Token** 승인이 별도로 필요합니다 (Basic Access
-신청 → Google 심사, 수일 소요 가능). 승인 전까지는 GA4/GTM 자동화만 사용하고, Ads 관련 기능
-(`/lens-report`의 Ads 지표, 전환 액션 생성)은 `credentials_meta.status=missing`으로 표시되어
-관련 커맨드가 실행 시 명확히 "Developer Token 미승인" 상태를 안내하고 조기 종료합니다 —
-로드맵상 Phase 3에서 실제로 사용됩니다.
+신청 → Google 심사, 수일 소요 가능). Google Ads 계정의 "도구 및 설정 > API 센터"에서
+신청합니다.
+
+승인 전까지는 GA4/GTM 자동화만 사용하고, `lens track link-ads`는 GA4-Ads 연결(GA4 Admin
+API만 필요, Developer Token 불필요)까지만 수행하고 전환 액션 생성은 건너뜁니다.
+
+```bash
+lens creds init --provider google-ads \
+  --developer-token <DEVELOPER_TOKEN> \
+  --login-customer-id <MCC_CUSTOMER_ID>   # MCC(관리자 계정) 아래에서 접근할 때만 필요
+```
+
+Developer Token은 OS 키체인에 저장되며, `login-customer-id`는 비밀이 아니라
+`~/.project-lens/settings.json`에 저장됩니다.
+
+**주의**: Google Ads API는 `analytics.edit`/`tagmanager.*`와는 별도로
+`https://www.googleapis.com/auth/adwords` OAuth 스코프가 필요합니다. Ads 연동을 처음
+쓰기 전에 기존 Google 인증이 있었다면 `lens creds init --provider google`을 다시
+실행해 이 스코프를 포함해 재인증해야 `insufficient authentication scopes` 오류를
+피할 수 있습니다.
+
+`lens creds check`로 전체 상태(`google oauth`, `google ads developer token`,
+`ads_login_customer_id`)를 확인할 수 있습니다.
 
 ```bash
 lens creds init --provider google-ads --developer-token <TOKEN> --login-customer-id <ID>

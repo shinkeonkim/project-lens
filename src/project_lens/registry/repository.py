@@ -146,8 +146,14 @@ def upsert_tracking_config(
     gtm_container_id: str | None = None,
     gtm_workspace_id: str | None = None,
     gtm_last_published_version: str | None = None,
+    ads_customer_id: str | None = None,
+    ads_conversion_action_ids: str | None = None,
 ) -> TrackingConfig:
-    """project_id 기준 1:1 upsert. None으로 넘긴 필드는 기존 값을 덮어쓰지 않는다."""
+    """project_id 기준 1:1 upsert. None으로 넘긴 필드는 기존 값을 덮어쓰지 않는다.
+
+    ads_conversion_action_ids는 JSON 배열 문자열 전체를 교체한다 — 기존 목록에 추가하려면
+    호출자가 get_tracking_config()로 읽은 뒤 합쳐서 넘겨야 한다.
+    """
 
     now = _now()
     conn.execute(
@@ -155,8 +161,8 @@ def upsert_tracking_config(
         INSERT INTO tracking_configs (
             project_id, ga4_account_id, ga4_property_id, ga4_measurement_id, ga4_stream_id,
             gtm_account_id, gtm_container_id, gtm_workspace_id, gtm_last_published_version,
-            last_synced_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ads_customer_id, ads_conversion_action_ids, last_synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '[]'), ?)
         ON CONFLICT(project_id) DO UPDATE SET
             ga4_account_id = COALESCE(excluded.ga4_account_id, tracking_configs.ga4_account_id),
             ga4_property_id = COALESCE(excluded.ga4_property_id, tracking_configs.ga4_property_id),
@@ -168,6 +174,11 @@ def upsert_tracking_config(
             gtm_last_published_version = COALESCE(
                 excluded.gtm_last_published_version, tracking_configs.gtm_last_published_version
             ),
+            ads_customer_id = COALESCE(excluded.ads_customer_id, tracking_configs.ads_customer_id),
+            ads_conversion_action_ids = CASE
+                WHEN ? IS NULL THEN tracking_configs.ads_conversion_action_ids
+                ELSE excluded.ads_conversion_action_ids
+            END,
             last_synced_at = excluded.last_synced_at
         """,
         (
@@ -180,7 +191,10 @@ def upsert_tracking_config(
             gtm_container_id,
             gtm_workspace_id,
             gtm_last_published_version,
+            ads_customer_id,
+            ads_conversion_action_ids,
             now,
+            ads_conversion_action_ids,
         ),
     )
     conn.commit()
