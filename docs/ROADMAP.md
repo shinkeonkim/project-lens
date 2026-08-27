@@ -90,10 +90,21 @@
 
 ## Phase 5 — 운영 품질
 
-- 에러 타입 계층 전체 정리 + `docs/TROUBLESHOOTING.md` 작성 (타입별 원인/해결 절차)
-- `/lens-logs`, `/lens-status`의 `needs_attention` 표시 로직 다듬기
-- 전체 13개 레포에 대해 일괄 `lens project add --dry-run` 실행해 어댑터 커버리지 확인
-- README/SECURITY 문서 최종 점검
+- [x] 전체 14개 등록 레포에 `lens track sync <slug> --gtm-id ...`(dry-run)를 일괄 실행해
+      어댑터 커버리지 확인 → **14개 전부 유효한 삽입 계획 확인, 100% 커버리지**
+- [x] 커버리지 점검 중 발견한 실제 문제 2건을 고침:
+      - `kokoa-study-room/compiler-study-site`는 `deployment_type=cloudflare_workers`가
+        맞았는데(`wrangler.jsonc` 존재) 실제 사이트가 `site/` 서브디렉터리 안에 있고
+        `CloudflareWorkersAdapter.detect()`가 레포 루트만 봐서 놓치고 있었음 → 서브디렉터리
+        한 단계까지 찾도록 수정
+      - 그 사이트와 `terraform-associate-004-study-notes`는 각각 Docusaurus·Astro
+        Starlight로 만들어져 소스에 정적 `index.html`이 없음 → 각 프레임워크의 공식 GTM
+        설정 방식(Docusaurus `googleTagManager` 프리셋 옵션, Starlight `head` 옵션)으로
+        패치하는 전략을 추가하고 실제 레포로 clone → 패치 → `bun run build`까지 돌려
+        빌드된 HTML에 스니펫이 실제로 들어가는 것을 확인
+- [ ] 에러 타입 계층 전체 정리 + `docs/TROUBLESHOOTING.md` 작성 (타입별 원인/해결 절차)
+- [ ] `/lens-logs`, `/lens-status`의 `needs_attention` 표시 로직 다듬기
+- [ ] README/SECURITY 문서 최종 점검
 
 ## Phase 6 — 향후 확장 (설계만, 착수 안 함)
 

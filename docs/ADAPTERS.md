@@ -7,6 +7,7 @@
 
 ### detect()
 
+레포 루트, 또는 그 바로 아래 서브디렉터리 한 단계(모노레포 스타일, 예: `site/`) 안에
 다음 중 하나라도 있으면 매치:
 
 - `wrangler.toml` 또는 `wrangler.jsonc` / `wrangler.json` 존재
@@ -14,19 +15,24 @@
 
 ### inject_tracking()
 
-REQUEST.md 대상 레포들은 대부분 정적 사이트를 Cloudflare Workers로 서빙하는 구조로 추정되므로,
-1차 구현은 아래 우선순위로 삽입 지점을 탐색합니다.
+wrangler 프로젝트를 찾은 뒤, 아래 우선순위로 실제 프레임워크에 맞는 삽입 전략을 고릅니다
+(전부 실제 레포로 라이브 검증됨 — `docs/ROADMAP.md` Phase 1, 5 참고):
 
-1. 정적 HTML 엔트리(`index.html`, `public/index.html`, `dist/index.html` 등)가 있으면
-   `<head>` 최상단에 GTM 스니펫, `<body>` 시작 직후에 noscript iframe 삽입
-2. 프레임워크 기반(Next.js/Astro 등)이면 프레임워크 관례에 맞는 삽입 지점 사용
-   (예: Next.js `app/layout.tsx` 또는 `_document.tsx`에 `<Script>` 컴포넌트 추가)
-3. 위 둘 다 아니면(Workers가 직접 HTML을 생성/응답하는 구조) 응답 생성 함수에서 GTM 컨테이너
-   ID를 환경 변수(`wrangler.toml`의 `[vars]` 또는 `wrangler secret`)로 주입하고, 코드가 응답
-   HTML에 스니펫을 문자열로 삽입하도록 최소 diff 패치
+1. **Docusaurus** (`docusaurus.config.ts`/`.js`에 classic preset 존재) — 정적 HTML은 빌드
+   산출물일 뿐 소스에 없으므로, 프리셋 옵션에 공식 `googleTagManager: { containerId }`를
+   추가한다. (`kokoa-study-room/compiler-study-site`로 검증 — 빌드된 HTML에 스니펫이
+   실제로 들어가는 것까지 확인)
+2. **Astro Starlight** (`astro.config.mjs`/`.ts`/`.js`에 `starlight(` 통합 호출 존재) —
+   Starlight의 공식 `head` 옵션으로 인라인 `<script>` 태그를 추가한다.
+   (`kokoa-study-room/terraform-associate-004-study-notes`로 검증)
+3. **정적 HTML 엔트리** (`index.html`, `public/index.html`, `src/index.html`) — `<head>`
+   최상단에 GTM 스니펫, `<body>` 시작 직후에 noscript iframe 삽입. (11개 레포로 검증)
+4. **Next.js 등 그 외 프레임워크** — 지금은 지원하지 않는다. 코드가 아니라 배포 자동화
+   레포 쪽에서 배선해야 하는 케이스(예: 빌드 시점에 굳는 값)는 `OhMyHomelabAdapter`처럼
+   그 레포 전용으로 별도 구현한다 — 일반화하려 하지 않는다.
 
-삽입 지점이 자동으로 특정되지 않는 레포는 `AdapterDetectionError`를 발생시키지 않고, "수동 삽입
-필요" 상태로 `needs_attention` 처리 + PR 대신 이슈(diff 제안 포함)를 생성합니다 — 무리하게 추측한
+어느 것도 못 찾으면 `AdapterDetectionError`를 발생시키지 않고, "수동 삽입 필요" 상태로
+`needs_attention` 처리 + PR 대신 이슈(확인한 경로 안내 포함)를 생성합니다 — 무리하게 추측한
 코드 수정을 강제로 커밋하지 않기 위함입니다.
 
 ### deploy()
@@ -36,12 +42,13 @@ REQUEST.md 대상 레포들은 대부분 정적 사이트를 Cloudflare Workers�
   API 토큰은 [`SECURITY.md`](SECURITY.md)에 따라 로컬에만 보관되어 있어야 하며, 없으면
   `direct` 모드는 자동으로 `pr` 모드로 폴백하고 경고를 남깁니다.
 
-### 적용 대상 (REQUEST.md 기준)
+### 적용 대상 (REQUEST.md 기준, 전부 dry-run으로 커버리지 확인됨 — Phase 5)
 
-kokoa-lab: how-to-get-google-dot-com, dice-art, pattern-type, dev-tarot, review-slot,
-please-delete-my-account, cozy-hive
-kokoa-study-room: transaction-isolation-level, compiler-study-site,
-terraform-associate-004-study-notes
+- 정적 HTML: kokoa-lab/how-to-get-google-dot-com, dice-art, pattern-type, dev-tarot,
+  review-slot, please-delete-my-account, cozy-hive; kokoa-study-room/transaction-isolation-level;
+  shinkeonkim/my-portfolio, my-cv, my-resume
+- Docusaurus: kokoa-study-room/compiler-study-site (`site/` 서브디렉터리)
+- Astro Starlight: kokoa-study-room/terraform-associate-004-study-notes
 shinkeonkim: my-portfolio, my-cv, my-resume
 
 ## OhMyHomelabAdapter
