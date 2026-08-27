@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.project-lens.weekly-report</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/koa/004-Projects/project-lens/.venv/bin/lens</string>
+        <string>track</string>
+        <string>report-all</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/koa/.project-lens/logs/weekly-report.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/koa/.project-lens/logs/weekly-report.err.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

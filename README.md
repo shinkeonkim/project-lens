@@ -43,6 +43,7 @@ Claude Code 안에서는 CLI 대신 `/lens-add-project`, `/lens-sync`, `/lens-st
 - [`docs/SECURITY.md`](docs/SECURITY.md) — 자격증명 보관·설정 매뉴얼
 - [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — 에러 타입별 원인·해결 절차
 - [`docs/GOOGLE_ADS_GUIDE.md`](docs/GOOGLE_ADS_GUIDE.md) — Google Ads Developer Token 신청부터 연동까지 단계별 매뉴얼
+- [`docs/SCHEDULED_REPORTS.md`](docs/SCHEDULED_REPORTS.md) — launchd로 매주 GA4 리포트 자동 실행하기
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — 단계별 구현 계획과 진행 상황
 
 ## 추적 대상 (REQUEST.md 기준)

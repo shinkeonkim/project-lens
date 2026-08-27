@@ -113,11 +113,38 @@
 - [x] README/SECURITY 문서 최종 점검 — README에 현재 상태(실제 PR 링크)·빠른 시작 섹션
       추가, 전체 문서에서 미구현 커맨드를 가리키는 stale 링크 없는지 확인
 
-## Phase 6 — 향후 확장 (설계만, 착수 안 함)
+## Phase 6 — 향후 확장 (사용자 요청으로 전부 구현, 실사용 필요는 아직 없었음)
 
-- 신규 배포 방식(Vercel, GitHub Pages 등) 어댑터 추가
-- `schedule` 스킬을 활용한 정기 리포트(cron) — 예: 매주 월요일 전체 프로젝트 성과 요약
-- 다중 GA4/Ads 계정(개인용 vs 랩용) 분리 지원
+원래 "설계만, 착수 안 함"으로 뒀던 Phase였으나, 사용자가 명시적으로 지금 다 구현해
+두길 원해 진행했다. 아래 항목 전부 실제 필요(현재 등록된 프로젝트에 Vercel/GitHub
+Pages 배포가 없고, 정기 리포트/다중 계정 요구도 없었음)보다 먼저 만든 것이므로,
+실사용 검증은 다음에 그 필요가 생겼을 때 하게 된다 — 코드는 fake/로컬 테스트로만
+검증됨(GA4/GTM/Ads 클라이언트 코드가 그래왔듯, 실제 사용 시 API 계약이 예상과 다를
+수 있다는 전례가 이미 여러 번 있었다).
+
+- [x] **VercelAdapter/GitHubPagesAdapter 추가** — Cloudflare 어댑터의 정적 사이트 삽입
+      로직(HTML/Docusaurus/Starlight)을 `adapters/_static_site.py` 공유 모듈로 뽑아내
+      세 어댑터가 재사용. `deployment_type` CHECK 제약에 `vercel`/`github_pages` 추가
+      (migration 0005 — SQLite CHECK 제약 변경은 테이블 재생성이 필요했고, 외래키
+      때문에 `PRAGMA foreign_keys=OFF`로 감싸야 했음. 실제 등록된 14개 프로젝트 DB의
+      **사본**으로 먼저 검증한 뒤 라이브 DB에 적용)
+- [x] **다중 GA4/Ads 계정 프로필 지원** — `settings.py`가 이름 붙은 `AccountProfile`
+      여러 개 + `org_profile_map`(GitHub org → 프로필)을 저장하도록 확장.
+      `lens creds set-accounts --profile <이름>`, `lens creds map-org <org> <profile>`.
+      기존 평평한 settings.json은 자동으로 `default` 프로필로 승격(하위 호환 확인됨)
+- [x] **`lens track report`/`report-all`** — GA4 Data API(Admin API와 별개 서비스, 별도
+      OAuth 스코프 `analytics.readonly` + GCP 프로젝트에서 API 활성화 둘 다 필요했음 —
+      실사용 검증 중 발견) 기반 방문자/세션/이탈률 리포트, 연결됐으면 Ads 지표도.
+      `report-all`은 등록된 모든 프로젝트를 순회하며 개별 실패에도 계속 진행하고
+      `~/.project-lens/reports/`에 저장
+- [x] **정기 리포트 스케줄링** — 클라우드 `schedule` 스킬은 project-lens의 "비밀은
+      로컬에만" 원칙과 충돌해(클라우드 샌드박스가 로컬 키체인/SQLite에 접근 불가)
+      대신 로컬 launchd LaunchAgent를 씀(`docs/SCHEDULED_REPORTS.md`,
+      `scripts/launchd/`). 매주 월요일 9시, `lens track report-all` 실행. **실제로
+      등록해서 `launchctl kickstart`로 수동 실행 검증까지 완료** — 로그인 세션 없이도
+      키체인 접근이 되는지가 가장 큰 리스크였는데, 실제 Google API까지 도달하는 걸
+      확인해 해소됨(그 시점엔 GA4 Data API가 아직 비활성 상태라 리포트 내용 자체는
+      실패로 끝났음 — API 활성화 후 재확인 필요)
 
 ## Phase 간 의존성
 
