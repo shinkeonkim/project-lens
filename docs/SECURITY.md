@@ -65,6 +65,19 @@ lens creds set-accounts --ga4-account-id <GA4_ACCOUNT_ID> --gtm-account-id <GTM_
 lens creds check           # 전체 상태 확인
 ```
 
+**여러 GA4/GTM 계정을 구분해 써야 한다면** (예: 개인 프로젝트는 개인 계정, 스터디 랩
+프로젝트는 랩 계정) `--profile`로 이름 붙인 프로필을 추가로 만들고, GitHub org별로
+매핑합니다:
+
+```bash
+lens creds set-accounts --ga4-account-id <LAB_GA4_ID> --gtm-account-id <LAB_GTM_ID> --profile lab
+lens creds map-org kokoa-lab lab
+lens creds map-org kokoa-study-room lab
+# shinkeonkim 같이 매핑 안 한 org는 계속 default 프로필을 씀
+```
+
+`lens creds check`에서 프로필별 계정과 org 매핑을 모두 확인할 수 있습니다.
+
 ## 3. Google Ads Developer Token
 
 Google Ads API는 OAuth 외에 **Developer Token** 승인이 별도로 필요합니다 (Basic Access

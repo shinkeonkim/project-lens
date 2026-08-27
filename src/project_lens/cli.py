@@ -244,7 +244,14 @@ def creds() -> None:
     default=None,
     help="google-ads 전용: MCC(관리자 계정) 아래에서 접근할 때 필요한 로그인 고객 ID.",
 )
-def creds_init(provider: str, developer_token: str | None, login_customer_id: str | None) -> None:
+@click.option(
+    "--profile",
+    default="default",
+    help="google-ads 전용: --login-customer-id를 저장할 계정 프로필 (`lens creds check` 참고).",
+)
+def creds_init(
+    provider: str, developer_token: str | None, login_customer_id: str | None, profile: str
+) -> None:
     """PROVIDER 인증을 최초 1회 수행하고 OS 키체인에 저장합니다."""
 
     if provider == "google":
@@ -258,7 +265,7 @@ def creds_init(provider: str, developer_token: str | None, login_customer_id: st
         store_ads_developer_token(developer_token)
         if login_customer_id:
             settings = load_settings()
-            settings.ads_login_customer_id = login_customer_id
+            settings.get_or_create_profile(profile).ads_login_customer_id = login_customer_id
             save_settings(settings)
         click.echo(
             "Google Ads Developer Token을 저장했습니다. "
@@ -273,10 +280,19 @@ def creds_check() -> None:
 
     settings = load_settings()
     click.echo(f"google oauth: {'ok' if has_stored_credentials() else 'missing'}")
-    click.echo(f"ga4_account_id: {settings.ga4_account_id or '(미설정)'}")
-    click.echo(f"gtm_account_id: {settings.gtm_account_id or '(미설정)'}")
     click.echo(f"google ads developer token: {'ok' if has_ads_developer_token() else 'missing'}")
-    click.echo(f"ads_login_customer_id: {settings.ads_login_customer_id or '(미설정, MCC 아닐 시 불필요)'}")
+    click.echo(f"기본 프로필: {settings.default_profile}")
+    click.echo("프로필:")
+    for name, profile in settings.profiles.items():
+        click.echo(
+            f"  [{name}] ga4_account_id={profile.ga4_account_id or '(미설정)'}, "
+            f"gtm_account_id={profile.gtm_account_id or '(미설정)'}, "
+            f"ads_login_customer_id={profile.ads_login_customer_id or '(미설정)'}"
+        )
+    if settings.org_profile_map:
+        click.echo("org → 프로필 매핑:")
+        for org, name in settings.org_profile_map.items():
+            click.echo(f"  {org} → {name}")
 
 
 @creds.command("accounts")
@@ -296,18 +312,53 @@ def creds_accounts() -> None:
 @creds.command("set-accounts")
 @click.option("--ga4-account-id", default=None)
 @click.option("--gtm-account-id", default=None)
-def creds_set_accounts(ga4_account_id: str | None, gtm_account_id: str | None) -> None:
-    """GTM/GA4 자동 생성 시 사용할 기본 계정 ID를 저장합니다 (`lens creds accounts`로 확인)."""
+@click.option(
+    "--profile",
+    default="default",
+    help=(
+        "설정을 저장할 계정 프로필 이름. 여러 GA4/GTM 계정을 구분해 쓰고 싶을 때 "
+        "(예: 개인용 vs 스터디 랩용) 이름을 새로 지어 만들고, "
+        "`lens creds map-org`로 GitHub org에 연결하세요. 생략하면 'default'."
+    ),
+)
+def creds_set_accounts(
+    ga4_account_id: str | None, gtm_account_id: str | None, profile: str
+) -> None:
+    """GTM/GA4 자동 생성 시 사용할 계정 ID를 프로필 단위로 저장합니다 (`lens creds accounts`로 확인)."""
 
     settings = load_settings()
+    account_profile = settings.get_or_create_profile(profile)
     if ga4_account_id:
-        settings.ga4_account_id = ga4_account_id
+        account_profile.ga4_account_id = ga4_account_id
     if gtm_account_id:
-        settings.gtm_account_id = gtm_account_id
+        account_profile.gtm_account_id = gtm_account_id
     save_settings(settings)
     click.echo(
-        f"저장됨: ga4_account_id={settings.ga4_account_id}, gtm_account_id={settings.gtm_account_id}"
+        f"저장됨 [{profile}]: ga4_account_id={account_profile.ga4_account_id}, "
+        f"gtm_account_id={account_profile.gtm_account_id}"
     )
+
+
+@creds.command("map-org")
+@click.argument("github_org")
+@click.argument("profile")
+def creds_map_org(github_org: str, profile: str) -> None:
+    """GITHUB_ORG의 프로젝트가 기본 프로필 대신 PROFILE을 쓰도록 매핑합니다.
+
+    예: kokoa-lab은 랩 계정, shinkeonkim은 개인 계정을 쓰고 싶을 때
+    `lens creds set-accounts --profile lab ...` 로 lab 프로필을 만든 뒤
+    `lens creds map-org kokoa-lab lab`로 연결합니다.
+    """
+
+    settings = load_settings()
+    if profile not in settings.profiles:
+        raise click.ClickException(
+            f"존재하지 않는 프로필입니다: {profile}. "
+            f"먼저 `lens creds set-accounts --profile {profile} ...`로 만드세요."
+        )
+    settings.org_profile_map[github_org] = profile
+    save_settings(settings)
+    click.echo(f"{github_org} → {profile}로 매핑했습니다.")
 
 
 @main.group()
@@ -482,11 +533,11 @@ def track_link_ads(slug: str, customer_id: str, yes: bool) -> None:
             conversion_action_resource_name = None
             if ads_ready:
                 developer_token = load_ads_developer_token()
-                settings = load_settings()
+                account_profile = load_settings().profile_for_org(proj.github_org)
                 ads_client = ads.build_client(
                     credentials,
                     developer_token=developer_token,
-                    login_customer_id=settings.ads_login_customer_id,
+                    login_customer_id=account_profile.ads_login_customer_id,
                 )
                 conversion_action = ads.find_or_create_conversion_action(
                     ads_client, customer_id=customer_id, name=f"{proj.slug} conversion"
@@ -527,12 +578,14 @@ def _provision_tracking(conn, proj) -> str:
     find-or-create이므로 같은 프로젝트에 대해 여러 번 호출해도 안전하다 (docs/ARCHITECTURE.md).
     """
 
-    settings = load_settings()
-    if not settings.ga4_account_id or not settings.gtm_account_id:
+    account_profile = load_settings().profile_for_org(proj.github_org)
+    if not account_profile.ga4_account_id or not account_profile.gtm_account_id:
         raise ValidationError(
-            "GA4/GTM 기본 계정이 설정되지 않았습니다. `lens creds accounts`로 사용 가능한 계정을 "
-            "확인한 뒤 `lens creds set-accounts --ga4-account-id ... --gtm-account-id ...`를 "
-            "먼저 실행하세요."
+            f"{proj.github_org}에 매핑된 프로필의 GA4/GTM 계정이 설정되지 않았습니다. "
+            "`lens creds accounts`로 사용 가능한 계정을 확인한 뒤 "
+            "`lens creds set-accounts --ga4-account-id ... --gtm-account-id ... "
+            f"[--profile <이름>]`를 먼저 실행하세요 (여러 계정을 org별로 나눠 쓰려면 "
+            "`lens creds map-org`도 참고하세요)."
         )
     if not proj.site_url:
         raise ValidationError(
@@ -545,7 +598,7 @@ def _provision_tracking(conn, proj) -> str:
     gtm_service = gtm.build_client(credentials)
 
     ga4_property = ga4.find_or_create_property(
-        ga4_client, account_id=settings.ga4_account_id, display_name=proj.slug
+        ga4_client, account_id=account_profile.ga4_account_id, display_name=proj.slug
     )
     ga4_stream = ga4.find_or_create_web_stream(
         ga4_client,
@@ -555,21 +608,23 @@ def _provision_tracking(conn, proj) -> str:
     )
 
     gtm_container = gtm.find_or_create_container(
-        gtm_service, account_id=settings.gtm_account_id, name=proj.slug
+        gtm_service, account_id=account_profile.gtm_account_id, name=proj.slug
     )
     gtm_workspace = gtm.get_default_workspace(
-        gtm_service, account_id=settings.gtm_account_id, container_id=gtm_container.container_id
+        gtm_service,
+        account_id=account_profile.gtm_account_id,
+        container_id=gtm_container.container_id,
     )
     gtm.ensure_ga4_config_tag(
         gtm_service,
-        account_id=settings.gtm_account_id,
+        account_id=account_profile.gtm_account_id,
         container_id=gtm_container.container_id,
         workspace_id=gtm_workspace.id,
         measurement_id=ga4_stream.measurement_id,
     )
     published_version = gtm.publish_workspace(
         gtm_service,
-        account_id=settings.gtm_account_id,
+        account_id=account_profile.gtm_account_id,
         container_id=gtm_container.container_id,
         workspace_id=gtm_workspace.id,
     )
@@ -577,11 +632,11 @@ def _provision_tracking(conn, proj) -> str:
     upsert_tracking_config(
         conn,
         project_id=proj.id,
-        ga4_account_id=settings.ga4_account_id,
+        ga4_account_id=account_profile.ga4_account_id,
         ga4_property_id=ga4_property.id,
         ga4_measurement_id=ga4_stream.measurement_id,
         ga4_stream_id=ga4_stream.id,
-        gtm_account_id=settings.gtm_account_id,
+        gtm_account_id=account_profile.gtm_account_id,
         gtm_container_id=gtm_container.container_id,
         gtm_workspace_id=gtm_workspace.id,
         gtm_last_published_version=published_version,
