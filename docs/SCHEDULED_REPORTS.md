@@ -82,12 +82,13 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.project-lens.weekly-
 - [x] 표준출력/에러가 로그 파일에 기록됨, `~/.project-lens/reports/`에 리포트
       파일이 실제로 생성됨을 확인
 - [x] `errors.short()`로 에러 메시지가 한 줄로 요약돼 로그가 읽기 좋음을 확인
-- [ ] **실제 성공적인 리포트 내용까지는 아직 확인 못함** — 이 스케줄을 설정하던
-      시점에 GA4 Data API가 아직 GCP 프로젝트에서 활성화되지 않아
-      (`docs/TROUBLESHOOTING.md`의 GoogleAPIError 섹션, `SERVICE_DISABLED`) 모든
-      프로젝트가 조회 실패로 끝났습니다. API 활성화 후 `launchctl kickstart -k ...`로
-      한 번 더 돌려서 `~/.project-lens/reports/`에 정상적인 리포트가 쌓이는지
-      확인하세요.
+- [x] **실제 성공적인 리포트까지 확인 완료.** GA4 Data API가 GCP 프로젝트
+      (`project-lens-506802`)에서 켜져 있는데도 처음엔 `SERVICE_DISABLED`가 났었는데
+      — 재시도하니 통과됨(활성화 전파 지연으로 추정). `launchctl kickstart -k`로
+      다시 돌려 `~/.project-lens/logs/weekly-report.log`에 14개 프로젝트 전부의
+      실제 GA4 수치(대부분 0 — PR이 아직 안 머지돼 사이트에 스니펫이 반영 안 됨,
+      `shinkeonkim-my-portfolio`만 방문자 1)가 정상적으로 찍히고
+      `~/.project-lens/reports/`에도 저장되는 것을 확인했습니다.
 - [ ] 이 Mac이 몇 주 이상 재부팅/로그아웃 없이 켜져 있는 실사용 환경에서 매주
       실제로 도는지는 시간이 지나야 확인됩니다. `launchctl print`의
       `last exit code`/`state`로 다음 월요일 이후 확인하세요.

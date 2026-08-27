@@ -141,10 +141,9 @@ Pages 배포가 없고, 정기 리포트/다중 계정 요구도 없었음)보�
       로컬에만" 원칙과 충돌해(클라우드 샌드박스가 로컬 키체인/SQLite에 접근 불가)
       대신 로컬 launchd LaunchAgent를 씀(`docs/SCHEDULED_REPORTS.md`,
       `scripts/launchd/`). 매주 월요일 9시, `lens track report-all` 실행. **실제로
-      등록해서 `launchctl kickstart`로 수동 실행 검증까지 완료** — 로그인 세션 없이도
-      키체인 접근이 되는지가 가장 큰 리스크였는데, 실제 Google API까지 도달하는 걸
-      확인해 해소됨(그 시점엔 GA4 Data API가 아직 비활성 상태라 리포트 내용 자체는
-      실패로 끝났음 — API 활성화 후 재확인 필요)
+      등록해서 `launchctl kickstart`로 완전한 성공까지 검증 완료** — 로그인 세션
+      없이도 키체인 접근이 되는지 확인했고, 재시도 후 14개 프로젝트 전부의 실제
+      GA4 리포트가 로그·`~/.project-lens/reports/`에 정상적으로 남는 것까지 확인함
 
 ## Phase 간 의존성
 
