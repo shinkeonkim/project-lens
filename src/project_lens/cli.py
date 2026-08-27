@@ -6,6 +6,7 @@ import uuid
 import click
 
 from project_lens.adapters.cloudflare_workers import CloudflareWorkersAdapter
+from project_lens.adapters.oh_my_homelab import OhMyHomelabAdapter
 from project_lens.errors import AdapterDetectionError, LensError, ValidationError
 from project_lens.github.client import ensure_authenticated, view_repo
 from project_lens.github.repo_ops import (
@@ -39,7 +40,7 @@ from project_lens.registry.repository import (
 from project_lens.settings import load_settings, save_settings
 from project_lens.workspace.manager import cloned_workspace
 
-_ADAPTERS = [CloudflareWorkersAdapter()]
+_ADAPTERS = [CloudflareWorkersAdapter(), OhMyHomelabAdapter()]
 
 
 @click.group()
@@ -332,7 +333,7 @@ def track_sync(slug: str, gtm_id: str | None, yes: bool, keep_workspace: bool) -
                     _handle_already_present(conn, change_set, run_id, yes)
                     return
 
-                _handle_new_change(conn, proj, gtm_id, change_set, repo_path, run_id, yes)
+                _handle_new_change(conn, proj, gtm_id, change_set, repo_path, run_id, yes, adapter)
         except LensError as exc:
             if run_id is not None:
                 finish_run(
@@ -550,12 +551,19 @@ def _handle_already_present(conn, change_set, run_id, yes: bool) -> None:
     click.echo(change_set.summary)
 
 
-def _handle_new_change(conn, proj, gtm_id: str, change_set, repo_path, run_id, yes: bool) -> None:
+def _handle_new_change(conn, proj, gtm_id: str, change_set, repo_path, run_id, yes: bool, adapter) -> None:
     if not yes:
         click.echo(f"[dry-run] {change_set.summary}")
         click.echo(f"  변경 파일: {', '.join(change_set.changed_files)}")
         click.echo("  --yes로 실행하면 브랜치 생성 → 커밋 → PR까지 진행합니다.")
         return
+
+    remote_summary = None
+    configure_remote = getattr(adapter, "configure_remote", None)
+    if configure_remote is not None:
+        remote_summary = configure_remote(
+            github_org=proj.github_org, github_repo=proj.github_repo, gtm_id=gtm_id
+        )
 
     branch = f"project-lens/add-gtm-tracking-{run_id}"
     create_branch(repo_path, branch)
@@ -564,27 +572,33 @@ def _handle_new_change(conn, proj, gtm_id: str, change_set, repo_path, run_id, y
         f"chore(tracking): add GTM snippet ({gtm_id})\n\nproject-lens automated commit.",
     )
     push_branch(repo_path, branch)
+    pr_body = (
+        "project-lens가 자동 생성한 PR입니다.\n\n"
+        f"- {change_set.summary}\n"
+        f"- GTM 컨테이너: {gtm_id}\n"
+    )
+    if remote_summary:
+        pr_body += f"- {remote_summary}\n"
     pr_url = create_pull_request(
         repo_path,
         title=f"chore(tracking): GTM 스니펫 추가 ({gtm_id})",
-        body=(
-            "project-lens가 자동 생성한 PR입니다.\n\n"
-            f"- {change_set.summary}\n"
-            f"- GTM 컨테이너: {gtm_id}\n"
-        ),
+        body=pr_body,
         base=proj.default_branch,
     )
 
     set_project_status(conn, proj.slug, "active")
+    summary = change_set.summary + (f" {remote_summary}" if remote_summary else "")
     finish_run(
         conn,
         run_id,
         status="success",
         commit_sha=commit_sha,
         pr_url=pr_url,
-        summary=change_set.summary,
+        summary=summary,
     )
     click.echo(f"완료: {pr_url}")
+    if remote_summary:
+        click.echo(remote_summary)
 
 
 def _entrypoint() -> None:

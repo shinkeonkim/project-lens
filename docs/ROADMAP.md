@@ -71,10 +71,22 @@
 
 ## Phase 4 — oh-my-homelab 어댑터
 
-- `shinkeonkim/oh-my-homelab`, `shinkeonkim/codekr` 조사 스파이크 (배포 트리거 방식,
-  환경 변수 규약, 서비스 등록 매니페스트 구조 확인) → [`ADAPTERS.md`](ADAPTERS.md) 잠정안 확정
-- `OhMyHomelabAdapter` 구현 (Cloudflare 어댑터와 동일한 detect/inject/deploy 계약)
-- 검증: `codekr` 레포에 대해 add → sync 흐름 확인
+- [x] `shinkeonkim/oh-my-homelab`, `shinkeonkim/codekr` 조사 완료 — 정적 사이트가 아니라
+      Next.js(App Router) 웹 + Go/Kotlin 백엔드로 구성된 코딩 테스트 플랫폼, K8s +
+      ArgoCD GitOps로 배포. 상세 내용은 [`ADAPTERS.md`](ADAPTERS.md#ohmyhomelabadapter) 참고
+- [x] `OhMyHomelabAdapter` 구현 — codekr의 실제 파일 구조에 맞춘 앵커 기반 패치
+      (Next.js 컴포넌트 추가, layout.tsx/Dockerfile/.env.example/CI 워크플로 배선) +
+      `configure_remote()`로 GitHub Actions 저장소 변수 설정(`--yes`일 때만)
+- [x] **범위 판단**: `oh-my-homelab`(private, ArgoCD `selfHeal: true`로 운영 클러스터에
+      자동 반영)은 전혀 건드리지 않기로 함 — GTM ID가 Next.js 빌드 시점에 굳는 값이라
+      codekr 자신의 CI 저장소 변수로 충분했고, 위험을 public 레포(PR 리뷰 가능) 안에
+      가둘 수 있었음
+- [x] **검증 완료**: 실제로 clone해 `bun install && bun run lint && bun run typecheck &&
+      bun run build && bun test`를 로컬에서 직접 돌려 확인(lint 0 errors, 47개 라우트
+      빌드 성공, 기존 웹 테스트 184개 통과) 후 `lens track sync shinkeonkim-codekr --yes`
+      실행 → GA4 속성(`G-NZE9ZMZRZD`)/GTM 컨테이너(`GTM-TP9LLDRJ`) 실제 생성, 저장소 변수
+      설정, PR [#667](https://github.com/shinkeonkim/codekr/pull/667) 생성. 실제 GitHub
+      CI(`web` 검사: 테스트·커버리지·린트·타입체크·빌드)도 전부 통과 확인
 
 ## Phase 5 — 운영 품질
 

@@ -46,32 +46,75 @@ shinkeonkim: my-portfolio, my-cv, my-resume
 
 ## OhMyHomelabAdapter
 
-`oh-my-homelab`은 개인 홈서버에서 여러 서비스를 배포하는 자체 도구로, 아직 이 저장소의 배포
-관례(compose 구조, 서비스 등록 방식, 환경 변수 규약 등)를 조사하지 않았습니다. 따라서 이
-어댑터는 **설계만 확정하고 구현은 Phase 4로 미룹니다** (자세한 사유는 [`ROADMAP.md`](ROADMAP.md)).
+`oh-my-homelab`(private)은 Kubernetes + ArgoCD(App-of-Apps GitOps)로 여러 서비스를 배포하는
+개인 홈랩 인프라입니다. Cloudflare Workers 어댑터와 성격이 근본적으로 다릅니다 — 정적
+사이트에 스니펫을 끼워 넣는 게 아니라, **대상 레포(codekr) 자체의 Next.js 코드에 GTM 배선을
+추가하는 작업**입니다. 자세한 조사 내용은 `git log`의 Phase 4 커밋 메시지를 참고하세요.
 
-### detect() — 잠정안 (조사 후 확정 필요)
+### 왜 이렇게 됐는가
 
-`shinkeonkim/oh-my-homelab`의 서비스 등록 방식을 조사해 아래 중 실제 패턴을 확인합니다.
+- `codekr`는 정적 사이트가 아니라 api/web/judge/executor 4개 서비스로 구성된 서비스입니다.
+  `web`은 Next.js(App Router)이고, GTM을 넣을 표준적인 방법은 `NEXT_PUBLIC_GTM_ID` 환경변수를
+  읽어 루트 레이아웃에 조건부로 렌더링하는 것입니다.
+- Next.js는 `NEXT_PUBLIC_*` 값을 **빌드 시점에만** 번들에 굳힙니다(런타임 K8s 환경변수로는
+  못 바꿈). `codekr`는 이미 이 제약 때문에 브라우저 전용 값(API 주소 등)을 배포 이미지에
+  비워 두고 브라우저가 자기 출처를 쓰게 하는 규칙을 갖고 있습니다(같은 이미지로 공개/내부
+  주소를 함께 서비스하기 위함, `apps/web/Dockerfile` 주석 참고).
+- 배포는 `oh-my-homelab`(private, ArgoCD `automated: {prune: true, selfHeal: true}` —
+  머지되면 곧바로 운영 클러스터에 반영됨)이 아니라 **codekr 자신의 GitHub Actions CI**가
+  담당합니다: `main` 머지마다 이미지를 빌드해 GHCR에 push하고, `deploy/charts/codekr/values-release.yaml`에
+  커밋 SHA를 적어 ArgoCD가 그걸 읽어가는 구조(GitOps지만 이미지 태그는 codekr 저장소가
+  스스로 기록).
+- 따라서 GTM ID 값은 Helm/K8s 환경변수가 아니라 **codekr 레포의 GitHub Actions 저장소
+  변수(`vars.NEXT_PUBLIC_GTM_ID`)**로 CI 빌드 시점에 주입합니다. `oh-my-homelab`(운영
+  클러스터에 자동 반영되는 private 레포)은 전혀 건드리지 않습니다 — 리스크를 codekr(public,
+  PR 리뷰 가능) 안에 가둡니다.
 
-- 레포 루트에 homelab 전용 매니페스트(예: `homelab.yaml`, `.homelab/`) 존재
-- 또는 `docker-compose.yml`에 homelab 특유의 라벨/네이밍 규약 존재
+### detect()
 
-### inject_tracking() — 잠정안
+레포 루트에 `deploy/charts/` 디렉터리가 있으면 매치합니다 (oh-my-homelab의
+`docs/service-dev-guide/`가 문서화한 "새 서비스는 자기 레포에 Helm 차트를 둔다" 관례).
 
-컨테이너 기반 배포로 추정되므로, 정적 HTML 삽입보다는 **환경 변수로 GTM ID를 주입**하고 애플리케이션
-코드가 이를 읽어 스니펫을 렌더링하는 방식을 우선 검토합니다. `codekr` 레포의 실제 스택(정적 사이트
-생성기인지, 서버 렌더링인지)을 조사한 뒤 CloudflareWorkersAdapter와 동일하게 "삽입 지점 자동 특정
-불가 시 이슈로 대체" 원칙을 적용합니다.
+### inject_tracking()
 
-### deploy() — 잠정안
+CloudflareWorkersAdapter처럼 정규식 기반 범용 패턴이 아니라, 실제로 조사한 `codekr`의
+파일 내용에 맞춘 **정확한 문자열 앵커 기반 패치**입니다(`adapters/oh_my_homelab.py`):
 
-oh-my-homelab의 배포 트리거 방식(예: git push 기반 GitOps, 또는 별도 CLI/webhook)을 조사해
-`direct` 모드에서 무엇을 실행할지 확정합니다. 확정 전까지는 `pr` 모드만 지원.
+1. `apps/web/src/shared/analytics/GoogleTagManager.tsx` — `NEXT_PUBLIC_GTM_ID`가 있을 때만
+   렌더링하는 head 스크립트 + noscript 컴포넌트 (신규 파일)
+2. `apps/web/src/app/layout.tsx` — 위 컴포넌트를 import하고 `<head>`/`<body>`에 삽입
+3. `apps/web/Dockerfile` — `ARG`/`ENV NEXT_PUBLIC_GTM_ID` 추가 (기존 `NEXT_PUBLIC_WS_BASE_URL`
+   패턴과 동일)
+4. `.env.example` — 새 환경변수 문서화
+5. `.github/workflows/ci.yml` — `web` 이미지 빌드에만 `build-args: NEXT_PUBLIC_GTM_ID=...` 추가
+
+앵커 문자열이 하나라도 안 맞으면(레이아웃 파일이 없거나 내용이 달라졌으면) None을 반환해
+이슈 생성 폴백으로 넘어갑니다 — 다른 구조를 추측해서 잘못 고치지 않습니다.
+
+값 자체(GTM ID)는 어떤 파일에도 하드코딩하지 않습니다. `configure_remote()`가 `--yes`일
+때만 `gh variable set NEXT_PUBLIC_GTM_ID --repo <org>/<repo>`로 실제 값을 설정합니다 —
+dry-run에서는 절대 호출되지 않습니다(실제 GitHub 상태를 바꾸는 유일한 지점이라 함부로
+호출하면 안 됨).
+
+### deploy()
+
+`pr` 모드만 지원(기본값 그대로). `direct` 모드는 구현하지 않았습니다 — codekr는 CI가 매우
+엄격하고(단위/통합 테스트, 샌드박스 라이브 테스트, lint/typecheck 184개 웹 테스트 등)
+`main`에 직접 머지하는 것은 이 프로젝트의 배포 관례와도 맞지 않습니다.
+
+### 실사용 검증 완료
+
+`lens track sync shinkeonkim-codekr --yes`로 실제 GA4 속성(`G-NZE9ZMZRZD`)/GTM
+컨테이너(`GTM-TP9LLDRJ`) 생성, `NEXT_PUBLIC_GTM_ID` 저장소 변수 설정, PR
+[#667](https://github.com/shinkeonkim/codekr/pull/667) 생성까지 end-to-end로 확인했습니다.
+PR을 만들기 전 로컬에서 `bun install && bun run lint && bun run typecheck && bun run build && bun test`를
+직접 돌려 lint 0 errors, typecheck 통과, 47개 라우트 빌드 성공, 기존 웹 테스트 184개 전부
+통과를 확인한 뒤 진행했습니다.
 
 ### 적용 대상
 
-shinkeonkim/codekr (배포 도구: shinkeonkim/oh-my-homelab)
+shinkeonkim/codekr (배포 도구: shinkeonkim/oh-my-homelab, private — 이 어댑터는 그 레포를
+전혀 수정하지 않음)
 
 ## 새 어댑터 추가 시 체크리스트
 
