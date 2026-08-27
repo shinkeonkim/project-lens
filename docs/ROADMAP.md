@@ -102,9 +102,16 @@
         설정 방식(Docusaurus `googleTagManager` 프리셋 옵션, Starlight `head` 옵션)으로
         패치하는 전략을 추가하고 실제 레포로 clone → 패치 → `bun run build`까지 돌려
         빌드된 HTML에 스니펫이 실제로 들어가는 것을 확인
-- [ ] 에러 타입 계층 전체 정리 + `docs/TROUBLESHOOTING.md` 작성 (타입별 원인/해결 절차)
-- [ ] `/lens-logs`, `/lens-status`의 `needs_attention` 표시 로직 다듬기
-- [ ] README/SECURITY 문서 최종 점검
+- [x] `docs/TROUBLESHOOTING.md` 작성 — 기존 에러 타입 6개(`errors.py`)별 원인/해결 절차,
+      이 프로젝트를 만들면서 실제로 겪은 사례(OAuth 스코프 드리프트, GA4/GTM API 계약
+      불일치) 포함
+- [x] `lens logs show <run_id>` 구현 (기존엔 설계만 있었음) — `deploy_runs` 1건 상세 +
+      에러 타입별 힌트. `lens project show`도 프로젝트 메타데이터에 이어 가장 최근 실행
+      (PR/이슈 링크 또는 실패 원인)을 함께 보여주도록 확장 — `needs_attention` 상태만
+      보고 "왜"를 알 수 없던 문제 해결
+- [x] 빠졌던 `/lens-logs` 슬래시 커맨드 추가, `/lens-status` 설명 최신화
+- [x] README/SECURITY 문서 최종 점검 — README에 현재 상태(실제 PR 링크)·빠른 시작 섹션
+      추가, 전체 문서에서 미구현 커맨드를 가리키는 stale 링크 없는지 확인
 
 ## Phase 6 — 향후 확장 (설계만, 착수 안 함)
 
