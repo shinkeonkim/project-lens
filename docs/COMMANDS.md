@@ -18,8 +18,8 @@
 | `/lens-list` | `lens project list` | 전체 등록 프로젝트를 표 형태로 출력 | ✅ Phase 0 |
 | `/lens-creds-setup` | `lens creds check` / `init` / `accounts` / `set-accounts` | Google/Ads 자격증명 상태 점검, 누락 항목에 대한 [`SECURITY.md`](SECURITY.md) 절차 안내 | ✅ Phase 2-3 |
 | `/lens-logs <run_id>` | `lens logs show <run_id>` | `deploy_runs` 실행 1건의 상세 + 에러 타입별 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) 힌트 출력 | ✅ Phase 5 |
+| `/lens-report <slug> [--range=7d\|30d]` | `lens track report <slug> --range ...` | GA4 방문자/세션/이탈률 + (연결 시) Ads 노출/클릭/CTR/비용/전환 요약. 읽기 전용 | ✅ Phase 3, 6 |
 | `/lens-remove <slug>` | `lens project remove <slug>` | soft delete (status=`archived`), 이력은 보존 | ⏳ 미구현 |
-| `/lens-report <slug> [--range=7d\|30d]` | `lens track report <slug> --range ...` | GA4/Ads 성과 지표 요약 (방문자수, 전환율, CTR, 광고비 등) | ⏳ Phase 3 잔여 작업 |
 
 ## 설계 원칙
 

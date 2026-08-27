@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from google.ads.googleads.errors import GoogleAdsException
+from google.ads.googleads.v25.common.types.metrics import Metrics
 from google.ads.googleads.v25.resources.types.conversion_action import ConversionAction
 from google.ads.googleads.v25.services.types.conversion_action_service import (
     MutateConversionActionResult,
@@ -110,3 +111,59 @@ def test_find_or_create_conversion_action_wraps_api_error():
 
     with pytest.raises(GoogleAPIError):
         ads.find_or_create_conversion_action(ExplodingClient(), customer_id="111", name="x")
+
+
+def test_run_summary_report_sums_rows_and_uses_date_range():
+    rows = [
+        GoogleAdsRow(metrics=Metrics(impressions=100, clicks=10, cost_micros=5_000_000, conversions=1.0)),
+        GoogleAdsRow(metrics=Metrics(impressions=50, clicks=5, cost_micros=2_000_000, conversions=0.5)),
+    ]
+    client = FakeGoogleAdsClient(existing_rows=rows)
+
+    summary = ads.run_summary_report(client, customer_id="1112223333", date_range="30d")
+
+    assert summary.impressions == 150
+    assert summary.clicks == 15
+    assert summary.cost_micros == 7_000_000
+    assert summary.cost == 7.0
+    assert summary.conversions == 1.5
+
+    customer_id, query = client.ga_service.search_calls[0]
+    assert customer_id == "1112223333"
+    assert "LAST_30_DAYS" in query
+
+
+def test_run_summary_report_no_rows_returns_zeros():
+    client = FakeGoogleAdsClient(existing_rows=[])
+
+    summary = ads.run_summary_report(client, customer_id="111", date_range="7d")
+
+    assert summary.impressions == 0
+    assert summary.conversions == 0.0
+
+
+def test_run_summary_report_rejects_unknown_date_range():
+    import pytest
+
+    from project_lens.errors import GoogleAPIError
+
+    client = FakeGoogleAdsClient(existing_rows=[])
+    with pytest.raises(GoogleAPIError):
+        ads.run_summary_report(client, customer_id="111", date_range="90d")
+
+
+def test_run_summary_report_wraps_api_error():
+    import pytest
+
+    from project_lens.errors import GoogleAPIError
+
+    class ExplodingService:
+        def search(self, customer_id, query):
+            raise GoogleAdsException(None, None, None, None)
+
+    class ExplodingClient:
+        def get_service(self, name):
+            return ExplodingService()
+
+    with pytest.raises(GoogleAPIError):
+        ads.run_summary_report(ExplodingClient(), customer_id="111", date_range="7d")

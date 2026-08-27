@@ -16,7 +16,7 @@ from project_lens.github.repo_ops import (
     create_pull_request,
     push_branch,
 )
-from project_lens.google import ads, ga4, gtm
+from project_lens.google import ads, ga4, ga4_reporting, gtm
 from project_lens.google.auth import (
     has_ads_developer_token,
     has_stored_credentials,
@@ -563,6 +563,94 @@ def track_link_ads(slug: str, customer_id: str, yes: bool) -> None:
                 summary += f", 전환 액션: {conversion_action_resource_name}"
             finish_run(conn, run_id, status="success", summary=summary)
             click.echo(summary)
+        except Exception as exc:
+            finish_run(
+                conn, run_id, status="failed", error_code=type(exc).__name__, error_summary=str(exc)
+            )
+            raise
+    finally:
+        conn.close()
+
+
+@track.command("report")
+@click.argument("slug")
+@click.option(
+    "--range",
+    "date_range",
+    type=click.Choice(["7d", "30d"]),
+    default="7d",
+    help="조회 기간 (기본 7일).",
+)
+def track_report(slug: str, date_range: str) -> None:
+    """SLUG의 GA4(연결돼 있으면 Ads도) 성과 지표를 조회합니다. 읽기 전용이라 --yes가 없습니다."""
+
+    conn = connect()
+    run_id: int | None = None
+    try:
+        proj = get_project(conn, slug)
+        if proj is None:
+            raise click.ClickException(f"등록되지 않은 프로젝트입니다: {slug}")
+
+        tracking = get_tracking_config(conn, proj.id)
+        if tracking is None or not tracking.ga4_property_id:
+            raise click.ClickException(
+                f"{slug}에 GA4 속성이 없습니다. 먼저 `lens track sync {slug} --yes`로 "
+                "GA4/GTM을 세팅하세요."
+            )
+
+        run_id = start_run(conn, project_id=proj.id, run_type="report")
+        try:
+            credentials = load_credentials()
+            data_client = ga4_reporting.build_client(credentials)
+            start_date = "30daysAgo" if date_range == "30d" else "7daysAgo"
+            ga4_summary = ga4_reporting.run_summary_report(
+                data_client, property_id=tracking.ga4_property_id, start_date=start_date
+            )
+
+            click.echo(f"{slug} — 최근 {date_range} GA4 리포트")
+            click.echo(f"  방문자(활성 사용자): {ga4_summary.active_users}")
+            click.echo(f"  세션: {ga4_summary.sessions}")
+            click.echo(f"  페이지뷰: {ga4_summary.page_views}")
+            click.echo(f"  이탈률: {float(ga4_summary.bounce_rate) * 100:.1f}%")
+            click.echo(
+                f"  평균 세션 시간: {float(ga4_summary.avg_session_duration_seconds):.0f}초"
+            )
+
+            if tracking.ads_customer_id and has_ads_developer_token():
+                developer_token = load_ads_developer_token()
+                account_profile = load_settings().profile_for_org(proj.github_org)
+                ads_client = ads.build_client(
+                    credentials,
+                    developer_token=developer_token,
+                    login_customer_id=account_profile.ads_login_customer_id,
+                )
+                ads_summary = ads.run_summary_report(
+                    ads_client, customer_id=tracking.ads_customer_id, date_range=date_range
+                )
+                ctr = (
+                    (ads_summary.clicks / ads_summary.impressions * 100)
+                    if ads_summary.impressions
+                    else 0.0
+                )
+                click.echo("  --- Google Ads ---")
+                click.echo(f"  노출수: {ads_summary.impressions}")
+                click.echo(f"  클릭수: {ads_summary.clicks} (CTR {ctr:.2f}%)")
+                click.echo(f"  비용: {ads_summary.cost:.2f}")
+                click.echo(f"  전환수: {ads_summary.conversions:.1f}")
+            elif tracking.ads_customer_id:
+                click.echo(
+                    "  (Ads 연결은 돼 있지만 Developer Token이 없어 Ads 지표는 건너뜁니다)"
+                )
+
+            finish_run(
+                conn,
+                run_id,
+                status="success",
+                summary=(
+                    f"GA4 리포트 조회 완료 (방문자 {ga4_summary.active_users}, "
+                    f"세션 {ga4_summary.sessions})"
+                ),
+            )
         except Exception as exc:
             finish_run(
                 conn, run_id, status="failed", error_code=type(exc).__name__, error_summary=str(exc)

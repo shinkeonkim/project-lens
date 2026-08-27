@@ -32,6 +32,9 @@ private 레포(kokoa-lab, kokoa-study-room 조직 등)는 해당 조직에 대�
 1. GCP 콘솔(console.cloud.google.com)에서 project-lens 전용 프로젝트 생성 (예: `project-lens-automation`)
 2. "API 및 서비스 > 라이브러리"에서 다음 API 활성화:
    - Google Analytics Admin API
+   - Google Analytics Data API (`lens track report`의 방문자/세션 등 리포트 조회에 필요 —
+     OAuth 스코프(`analytics.readonly`)와 별개로 GCP 프로젝트에서도 따로 활성화해야 함,
+     안 해두면 `SERVICE_DISABLED` 오류)
    - Tag Manager API
    - (Phase 3용, 미리 활성화해도 무방) Google Ads API
 3. "API 및 서비스 > OAuth 동의 화면" 구성 (User Type: 외부 또는 내부 무관, 테스트 모드로 충분 —

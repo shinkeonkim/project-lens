@@ -35,6 +35,18 @@ class AdsConversionAction:
     name: str
 
 
+@dataclass(frozen=True)
+class AdsReportSummary:
+    impressions: int
+    clicks: int
+    cost_micros: int
+    conversions: float
+
+    @property
+    def cost(self) -> float:
+        return self.cost_micros / 1_000_000
+
+
 def build_client(
     credentials: Credentials, *, developer_token: str, login_customer_id: str | None = None
 ) -> GoogleAdsClient:
@@ -83,6 +95,46 @@ def find_or_create_conversion_action(
         return AdsConversionAction(id=conversion_action_id, resource_name=resource_name, name=name)
     except GoogleAdsException as exc:
         raise GoogleAPIError(f"Ads 전환 액션 생성/조회 실패({name}): {exc}") from exc
+
+
+_DATE_RANGE_PRESETS = {"7d": "LAST_7_DAYS", "30d": "LAST_30_DAYS"}
+
+
+def run_summary_report(
+    client: GoogleAdsClient, *, customer_id: str, date_range: str = "7d"
+) -> AdsReportSummary:
+    """customer_id 계정의 지정 기간 노출수/클릭수/비용/전환수 합계를 조회한다."""
+
+    gaql_range = _DATE_RANGE_PRESETS.get(date_range)
+    if gaql_range is None:
+        raise GoogleAPIError(
+            f"지원하지 않는 date_range입니다: {date_range} "
+            f"(가능한 값: {', '.join(_DATE_RANGE_PRESETS)})"
+        )
+
+    try:
+        ga_service = client.get_service("GoogleAdsService")
+        query = (
+            "SELECT metrics.impressions, metrics.clicks, metrics.cost_micros, "
+            "metrics.conversions FROM customer "
+            f"WHERE segments.date DURING {gaql_range}"
+        )
+        impressions = clicks = cost_micros = 0
+        conversions = 0.0
+        for row in ga_service.search(customer_id=customer_id, query=query):
+            impressions += row.metrics.impressions
+            clicks += row.metrics.clicks
+            cost_micros += row.metrics.cost_micros
+            conversions += row.metrics.conversions
+
+        return AdsReportSummary(
+            impressions=impressions,
+            clicks=clicks,
+            cost_micros=cost_micros,
+            conversions=conversions,
+        )
+    except GoogleAdsException as exc:
+        raise GoogleAPIError(f"Ads 리포트 조회 실패(customer_id={customer_id}): {exc}") from exc
 
 
 def _escape_gaql(value: str) -> str:

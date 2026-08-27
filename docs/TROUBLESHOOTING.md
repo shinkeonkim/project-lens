@@ -57,16 +57,25 @@
 **의미**: GA4 Admin API / Tag Manager API / Google Ads API 호출이 실패함.
 
 - **API 계약을 문서/추측만으로 예측하면 실제와 다를 수 있습니다** — 이 프로젝트에서 실제로
-  2번 겪었습니다:
+  여러 번 겪었습니다:
   - `AnalyticsAdminServiceClient.list_properties()`는 `filter=` 직접 키워드 인자를 안 받고
     `request={"filter": ...}` 형태여야 합니다.
   - GTM 컨테이너 버전 생성(`create_version`)에는 `tagmanager.edit.containers`와 별도로
     `tagmanager.edit.containerversions` 스코프가 필요합니다(→ AuthError로 이어짐, 위 참고).
+  - GA4 **Data API**(리포트 조회, `lens track report`)는 GA4 **Admin API**와 완전히 다른
+    서비스라 `analytics.edit` 스코프로 커버되지 않습니다 — `analytics.readonly` 스코프가
+    별도로 필요하고(→ AuthError), **그것과 별개로** GCP 프로젝트에서 "Google Analytics
+    Data API" 자체를 API 라이브러리에서 활성화해야 합니다(안 하면
+    `SERVICE_DISABLED`/`has not been used in project ... before or it is disabled` 오류 —
+    `docs/SECURITY.md` 2번 섹션에 반영됨). OAuth 스코프 문제와 API 미활성화 문제는
+    증상이 비슷해 보이지만(둘 다 403) 원인과 해결책이 다르므로 에러 메시지의
+    `reason`/`SERVICE_DISABLED` vs `ACCESS_TOKEN_SCOPE_INSUFFICIENT`를 확인하세요.
   - **교훈**: Google API 클라이언트 코드를 새로 추가/변경했으면, 실제 계정으로 최소 1회
     라이브 검증하기 전까지는 "완료"로 보지 마세요. 이 저장소의 `google/gtm.py`,
-    `google/ga4.py`, `google/ads.py` 테스트는 설치된 패키지의 실제 타입/시그니처를
-    `inspect.signature()`로 확인한 뒤 그걸 그대로 쓰는 fake로 작성돼 있습니다 — 같은
-    방식을 새 코드에도 적용하세요.
+    `google/ga4.py`, `google/ga4_reporting.py`, `google/ads.py` 테스트는 설치된 패키지의
+    실제 타입/시그니처를 `inspect.signature()`로 확인한 뒤 그걸 그대로 쓰는 fake로
+    작성돼 있습니다 — 같은 방식을 새 코드에도 적용하세요. 새 Google API를 처음 쓸 때는
+    OAuth 스코프 추가와 GCP 프로젝트 API 활성화를 **둘 다** 빠뜨리지 않았는지 확인하세요.
 - 계정/권한 문제(`PERMISSION_DENIED`, `403`) → `lens creds accounts`로 실제 접근 가능한
   계정인지 확인, `lens creds set-accounts`로 올바른 계정 ID가 저장돼 있는지 확인.
 - Google Ads `INVALID_CUSTOMER_ID` 류 → customer ID는 하이픈 없이 숫자만 (`lens track

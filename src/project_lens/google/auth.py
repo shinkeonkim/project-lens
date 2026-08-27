@@ -25,6 +25,10 @@ _KEYRING_ADS_DEVELOPER_TOKEN_USERNAME = "google-ads-developer-token"
 
 SCOPES = [
     "https://www.googleapis.com/auth/analytics.edit",
+    # GA4 Data API(리포트 조회, analyticsdata.googleapis.com)는 analytics.edit로 커버되지
+    # 않는다 — 실제로 "ACCESS_TOKEN_SCOPE_INSUFFICIENT"로 확인됨. 리포트 조회 전용이므로
+    # readonly로 충분하다.
+    "https://www.googleapis.com/auth/analytics.readonly",
     "https://www.googleapis.com/auth/tagmanager.manage.accounts",
     "https://www.googleapis.com/auth/tagmanager.edit.containers",
     "https://www.googleapis.com/auth/tagmanager.edit.containerversions",
