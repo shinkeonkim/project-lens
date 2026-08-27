@@ -55,6 +55,20 @@ def test_upsert_project_creates_new_record(conn):
     assert len(list_projects(conn)) == 1
 
 
+@pytest.mark.parametrize("deployment_type", ["vercel", "github_pages"])
+def test_upsert_project_accepts_phase6_deployment_types(conn, deployment_type):
+    record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+        deployment_type=deployment_type,
+    )
+    assert record.deployment_type == deployment_type
+
+
 def test_upsert_project_is_idempotent(conn):
     first = upsert_project(
         conn,

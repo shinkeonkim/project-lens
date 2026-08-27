@@ -6,7 +6,9 @@ import uuid
 import click
 
 from project_lens.adapters.cloudflare_workers import CloudflareWorkersAdapter
+from project_lens.adapters.github_pages import GitHubPagesAdapter
 from project_lens.adapters.oh_my_homelab import OhMyHomelabAdapter
+from project_lens.adapters.vercel import VercelAdapter
 from project_lens.errors import AdapterDetectionError, LensError, ValidationError
 from project_lens.github.client import ensure_authenticated, view_repo
 from project_lens.github.repo_ops import (
@@ -42,7 +44,12 @@ from project_lens.registry.repository import (
 from project_lens.settings import load_settings, save_settings
 from project_lens.workspace.manager import cloned_workspace
 
-_ADAPTERS = [CloudflareWorkersAdapter(), OhMyHomelabAdapter()]
+_ADAPTERS = [
+    CloudflareWorkersAdapter(),
+    VercelAdapter(),
+    GitHubPagesAdapter(),
+    OhMyHomelabAdapter(),
+]
 
 
 @click.group()
@@ -68,7 +75,9 @@ def project() -> None:
 )
 @click.option(
     "--deployment-type",
-    type=click.Choice(["cloudflare_workers", "oh_my_homelab", "unknown"]),
+    type=click.Choice(
+        ["cloudflare_workers", "oh_my_homelab", "vercel", "github_pages", "unknown"]
+    ),
     default="unknown",
     help="배포 방식을 미리 알고 있다면 지정합니다 (자동 감지는 Phase 1부터 지원).",
 )

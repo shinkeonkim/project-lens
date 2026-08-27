@@ -18,7 +18,7 @@ DB 위치: `~/.project-lens/registry.sqlite3` (레포 바깥, git 추적 대상 
 | github_repo | TEXT | |
 | visibility | TEXT | `public` \| `private` |
 | default_branch | TEXT | |
-| deployment_type | TEXT | `cloudflare_workers` \| `oh_my_homelab` \| `unknown` |
+| deployment_type | TEXT | `cloudflare_workers` \| `oh_my_homelab` \| `vercel` \| `github_pages` \| `unknown` |
 | deploy_mode | TEXT | `pr`(기본) \| `direct` — 프로젝트별 옵트인 |
 | status | TEXT | `pending` \| `active` \| `needs_attention` \| `archived` |
 | notes | TEXT | 자유 메모 |
@@ -90,5 +90,15 @@ DB 위치: `~/.project-lens/registry.sqlite3` (레포 바깥, git 추적 대상 
 ## 마이그레이션
 
 스키마 변경은 단순 순번 마이그레이션 스크립트(`src/project_lens/registry/migrations/NNNN_*.sql`)로
-관리하고, `lens db migrate`로 적용합니다. 초기 버전은 별도 ORM 없이 표준 라이브러리 `sqlite3` +
-얇은 repository 함수로 구현해 의존성을 최소화합니다.
+관리합니다. 별도 `lens db migrate` 명령은 없습니다 — `connect()`(모든 CLI 명령이 시작할 때
+호출)가 매번 적용 안 된 마이그레이션을 자동으로 실행합니다(`registry/db.py`). 별도 ORM 없이
+표준 라이브러리 `sqlite3` + 얇은 repository 함수로 구현해 의존성을 최소화합니다.
+
+**CHECK 제약을 바꿔야 할 때** (예: `deployment_type`에 새 값 추가, migration 0005 참고):
+SQLite는 `ALTER TABLE`로 CHECK 제약을 직접 못 고칩니다. 새 테이블을 만들어 데이터를
+복사하고 기존 테이블을 바꿔치기해야 하는데, 다른 테이블이 그 테이블을 외래키로 참조하면
+(`deploy_runs`/`tracking_configs`가 `projects.id`를 참조) `PRAGMA foreign_keys=ON`인 채로
+`DROP TABLE`을 하면 `FOREIGN KEY constraint failed`로 막힙니다(실제 데이터로 검증 중
+확인됨). 스크립트 앞뒤로 `PRAGMA foreign_keys=OFF;`/`PRAGMA foreign_keys=ON;`으로 감싸야
+합니다. **실제 사용자 DB의 사본으로 먼저 검증**한 뒤(레지스트리는 사용자의 실제 프로젝트
+이력이 든 진짜 데이터입니다) 적용하세요 — 이 마이그레이션도 그렇게 확인했습니다.

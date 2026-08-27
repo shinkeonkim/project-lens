@@ -3,6 +3,13 @@
 배포 어댑터는 "레포를 감지하고, 트래킹 코드를 삽입하고, 배포한다"는 3단계 책임만 가집니다.
 공통 인터페이스는 [`ARCHITECTURE.md`](ARCHITECTURE.md#4-deployment-adapters) 참고.
 
+**정적 사이트 삽입 로직은 어댑터 3개가 공유합니다** (`adapters/_static_site.py`):
+CloudflareWorkersAdapter, VercelAdapter, GitHubPagesAdapter는 전부 "배포 대상을 찾는
+방법"만 다르고(wrangler.toml vs vercel.json vs CNAME/deploy-pages workflow), 찾은 뒤
+"정적 HTML/Docusaurus/Astro Starlight 중 무엇이든 GTM을 넣는 방법"은 똑같기 때문입니다.
+OhMyHomelabAdapter만 예외입니다 — codekr의 Next.js 빌드 시점 환경변수 배선처럼 애플리케이션
+코드/CI까지 손대야 하는 경우라 공유 로직으로 일반화할 수 없었습니다.
+
 ## CloudflareWorkersAdapter
 
 ### detect()
@@ -122,6 +129,43 @@ PR을 만들기 전 로컬에서 `bun install && bun run lint && bun run typeche
 
 shinkeonkim/codekr (배포 도구: shinkeonkim/oh-my-homelab, private — 이 어댑터는 그 레포를
 전혀 수정하지 않음)
+
+## VercelAdapter
+
+**적용 대상 없음** (Phase 6, 사용자 요청으로 미리 구현 — 현재 등록된 14개 프로젝트 중
+Vercel로 배포되는 건 없어서 실사용 검증은 못 했습니다. 새 프로젝트가 생기면 검증하세요).
+
+### detect()
+
+레포 루트, 또는 서브디렉터리 한 단계 안에 다음 중 하나라도 있으면 매치:
+
+- `vercel.json` 존재
+- `package.json`의 `devDependencies`/`dependencies`에 `vercel` 포함
+
+### inject_tracking()
+
+찾은 프로젝트 루트에 공유 정적 사이트 전략(위 참고)을 그대로 적용합니다. Next.js처럼
+빌드 시점에 값이 굳는 프레임워크를 쓰는 Vercel 프로젝트가 생기면, `OhMyHomelabAdapter`가
+codekr에 한 것처럼 그 레포 전용 어댑터(또는 전용 분기)를 실제 구조를 보고 만드세요 —
+검증할 레포 없이 미리 일반화하지 않습니다.
+
+## GitHubPagesAdapter
+
+**적용 대상 없음** (Phase 6, 사용자 요청으로 미리 구현 — VercelAdapter와 같은 상태).
+
+### detect()
+
+wrangler.toml 같은 단일 설정 파일 관례가 없어 두 신호를 봅니다:
+
+- `CNAME` 파일이 레포 루트 또는 `docs/`에 있음 (커스텀 도메인 설정 시 생김)
+- `.github/workflows/*.yml`이 Pages 배포 액션(`actions/deploy-pages`,
+  `peaceiris/actions-gh-pages`)을 씀
+
+### inject_tracking()
+
+콘텐츠 루트 후보를 레포 루트 → `docs/` 순으로 시도하며 공유 정적 사이트 전략을 적용합니다.
+`gh-pages` 브랜치를 소스로 쓰는 저장소는(메인 브랜치에는 빌드 산출물이 없는 구조) 현재
+지원 범위 밖입니다 — clone은 기본 브랜치만 하기 때문입니다.
 
 ## 새 어댑터 추가 시 체크리스트
 
