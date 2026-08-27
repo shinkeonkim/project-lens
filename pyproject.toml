@@ -1,0 +1,31 @@
+[project]
+name = "project-lens"
+version = "0.1.0"
+description = "여러 웹사이트 프로젝트의 GA4/GTM/Google Ads 트래킹 설정을 등록·배포·관리하는 CLI"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+    "google-auth>=2.30",
+    "google-auth-oauthlib>=1.2",
+    "google-api-python-client>=2.130",
+    "google-analytics-admin>=0.22",
+    "keyring>=25.0",
+]
+
+[project.scripts]
+lens = "project_lens.cli:_entrypoint"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"project_lens.registry.migrations" = ["*.sql"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]

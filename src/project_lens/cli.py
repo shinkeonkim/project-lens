@@ -1,0 +1,458 @@
+from __future__ import annotations
+
+import uuid
+
+import click
+
+from project_lens.adapters.cloudflare_workers import CloudflareWorkersAdapter
+from project_lens.errors import AdapterDetectionError, LensError, ValidationError
+from project_lens.github.client import ensure_authenticated, view_repo
+from project_lens.github.repo_ops import (
+    commit_all,
+    create_branch,
+    create_issue,
+    create_pull_request,
+    push_branch,
+)
+from project_lens.google import ga4, gtm
+from project_lens.google.auth import has_stored_credentials, load_credentials, run_oauth_flow
+from project_lens.registry.db import connect
+from project_lens.registry.repository import (
+    finish_run,
+    get_project,
+    list_projects,
+    set_project_status,
+    set_site_url,
+    start_run,
+    upsert_project,
+    upsert_tracking_config,
+)
+from project_lens.settings import load_settings, save_settings
+from project_lens.workspace.manager import cloned_workspace
+
+_ADAPTERS = [CloudflareWorkersAdapter()]
+
+
+@click.group()
+def main() -> None:
+    """project-lens: 여러 웹사이트의 GA4/GTM/Google Ads 트래킹 설정 관리 CLI."""
+
+
+@main.group()
+def project() -> None:
+    """프로젝트 레지스트리 관리."""
+
+
+@project.command("add")
+@click.argument("github_url")
+@click.option(
+    "--metadata-only",
+    is_flag=True,
+    required=True,
+    help=(
+        "레지스트리 등록만 수행합니다. 트래킹 자동 세팅(GA4/GTM 생성, 스니펫 삽입, PR 생성)은 "
+        "아직 구현되지 않았습니다 (docs/ROADMAP.md Phase 1+). 현재는 이 플래그가 필수입니다."
+    ),
+)
+@click.option(
+    "--deployment-type",
+    type=click.Choice(["cloudflare_workers", "oh_my_homelab", "unknown"]),
+    default="unknown",
+    help="배포 방식을 미리 알고 있다면 지정합니다 (자동 감지는 Phase 1부터 지원).",
+)
+@click.option(
+    "--site-url",
+    default=None,
+    help="실제 배포 URL (예: https://dice-art.example.com). GA4 웹 스트림 자동 생성에 필요합니다.",
+)
+def project_add(
+    github_url: str, metadata_only: bool, deployment_type: str, site_url: str | None
+) -> None:
+    """GITHUB_URL을 레지스트리에 등록(이미 있으면 갱신)합니다."""
+
+    ensure_authenticated()
+    info = view_repo(github_url)
+
+    conn = connect()
+    try:
+        record = upsert_project(
+            conn,
+            github_url=info.url,
+            github_org=info.org,
+            github_repo=info.repo,
+            visibility=info.visibility,
+            default_branch=info.default_branch,
+            deployment_type=deployment_type,
+            site_url=site_url,
+        )
+    finally:
+        conn.close()
+
+    click.echo(
+        f"등록됨: {record.slug} ({record.visibility}, "
+        f"deployment_type={record.deployment_type}, status={record.status})"
+    )
+
+
+@project.command("list")
+def project_list() -> None:
+    """등록된 전체 프로젝트를 표로 출력합니다."""
+
+    conn = connect()
+    try:
+        records = list_projects(conn)
+    finally:
+        conn.close()
+
+    if not records:
+        click.echo("등록된 프로젝트가 없습니다. `lens project add <github_url> --metadata-only`로 추가하세요.")
+        return
+
+    rows = [
+        (r.slug, r.visibility, r.deployment_type, r.status, r.updated_at) for r in records
+    ]
+    headers = ("slug", "visibility", "deployment_type", "status", "updated_at")
+    widths = [
+        max(len(str(row[i])) for row in ([headers] + rows)) for i in range(len(headers))
+    ]
+    for row in [headers, tuple("-" * w for w in widths)] + rows:
+        click.echo("  ".join(str(cell).ljust(w) for cell, w in zip(row, widths)))
+
+
+@project.command("show")
+@click.argument("slug")
+def project_show(slug: str) -> None:
+    """단일 프로젝트의 상세 정보를 출력합니다."""
+
+    conn = connect()
+    try:
+        record = get_project(conn, slug)
+    finally:
+        conn.close()
+
+    if record is None:
+        raise click.ClickException(f"등록되지 않은 프로젝트입니다: {slug}")
+
+    for field in record.__dataclass_fields__:
+        click.echo(f"{field}: {getattr(record, field)}")
+
+
+@project.command("set-site-url")
+@click.argument("slug")
+@click.argument("site_url")
+def project_set_site_url(slug: str, site_url: str) -> None:
+    """SLUG 프로젝트의 실제 배포 URL을 설정합니다 (GA4 웹 스트림 자동 생성에 필요)."""
+
+    conn = connect()
+    try:
+        if get_project(conn, slug) is None:
+            raise click.ClickException(f"등록되지 않은 프로젝트입니다: {slug}")
+        set_site_url(conn, slug, site_url)
+    finally:
+        conn.close()
+
+    click.echo(f"{slug}의 site_url을 설정했습니다: {site_url}")
+
+
+@main.group()
+def creds() -> None:
+    """외부 서비스 자격증명 관리 (docs/SECURITY.md)."""
+
+
+@creds.command("init")
+@click.option("--provider", type=click.Choice(["google"]), required=True)
+def creds_init(provider: str) -> None:
+    """PROVIDER 인증을 최초 1회 수행하고 OS 키체인에 저장합니다."""
+
+    if provider == "google":
+        run_oauth_flow()
+        click.echo("Google 인증 완료. 자격증명은 OS 키체인에 저장되었습니다.")
+
+
+@creds.command("check")
+def creds_check() -> None:
+    """저장된 자격증명/설정 상태를 보여줍니다."""
+
+    settings = load_settings()
+    click.echo(f"google oauth: {'ok' if has_stored_credentials() else 'missing'}")
+    click.echo(f"ga4_account_id: {settings.ga4_account_id or '(미설정)'}")
+    click.echo(f"gtm_account_id: {settings.gtm_account_id or '(미설정)'}")
+
+
+@creds.command("accounts")
+def creds_accounts() -> None:
+    """인증된 Google 계정에서 접근 가능한 GA4/GTM 계정 목록을 보여줍니다."""
+
+    credentials = load_credentials()
+    click.echo("GA4 계정:")
+    for account in ga4.list_accounts(ga4.build_client(credentials)):
+        click.echo(f"  {account.id}  {account.display_name}")
+
+    click.echo("GTM 계정:")
+    for account in gtm.list_accounts(gtm.build_client(credentials)):
+        click.echo(f"  {account.id}  {account.name}")
+
+
+@creds.command("set-accounts")
+@click.option("--ga4-account-id", default=None)
+@click.option("--gtm-account-id", default=None)
+def creds_set_accounts(ga4_account_id: str | None, gtm_account_id: str | None) -> None:
+    """GTM/GA4 자동 생성 시 사용할 기본 계정 ID를 저장합니다 (`lens creds accounts`로 확인)."""
+
+    settings = load_settings()
+    if ga4_account_id:
+        settings.ga4_account_id = ga4_account_id
+    if gtm_account_id:
+        settings.gtm_account_id = gtm_account_id
+    save_settings(settings)
+    click.echo(
+        f"저장됨: ga4_account_id={settings.ga4_account_id}, gtm_account_id={settings.gtm_account_id}"
+    )
+
+
+@main.group()
+def track() -> None:
+    """트래킹 스니펫 동기화."""
+
+
+@track.command("sync")
+@click.argument("slug")
+@click.option(
+    "--gtm-id",
+    default=None,
+    help=(
+        "삽입할 기존 GTM 컨테이너 ID (예: GTM-XXXXXXX). 생략하면 GA4 속성/GTM 컨테이너를 "
+        "API로 자동 생성 또는 조회합니다 (사전에 `lens creds init --provider google`, "
+        "`lens creds set-accounts`, `lens project set-site-url`이 필요합니다)."
+    ),
+)
+@click.option(
+    "--yes",
+    is_flag=True,
+    help=(
+        "실제로 (필요하면 GA4/GTM 리소스 생성 후) 브랜치 생성/커밋/push/PR(또는 이슈) 생성까지 "
+        "진행합니다. 생략하면 계획만 보여주고 종료합니다(dry-run)."
+    ),
+)
+@click.option(
+    "--keep-workspace",
+    is_flag=True,
+    help="디버깅용: 작업 후 clone된 디렉터리를 삭제하지 않습니다.",
+)
+def track_sync(slug: str, gtm_id: str | None, yes: bool, keep_workspace: bool) -> None:
+    """SLUG 프로젝트의 레포에 GTM 스니펫을 삽입하고 PR(또는 이슈)을 생성합니다."""
+
+    conn = connect()
+    run_id: int | None = None
+    try:
+        proj = get_project(conn, slug)
+        if proj is None:
+            raise click.ClickException(
+                f"등록되지 않은 프로젝트입니다: {slug} (먼저 `lens project add`로 등록하세요)"
+            )
+
+        auto_provision = gtm_id is None
+
+        if auto_provision and not yes:
+            click.echo(
+                f"[dry-run] {slug}: --gtm-id가 없어 GA4 속성/GTM 컨테이너를 자동 생성 또는 "
+                "조회할 예정입니다."
+            )
+            click.echo(
+                "  --yes로 실행하면 실제로 Google API를 호출해 리소스를 만들고, 그 결과로 "
+                "얻은 GTM ID로 스니펫 삽입 → PR까지 진행합니다."
+            )
+            return
+
+        ensure_authenticated()
+
+        if yes:
+            run_id = start_run(conn, project_id=proj.id, run_type="sync")
+            workspace_token = str(run_id)
+        else:
+            workspace_token = f"dryrun-{uuid.uuid4().hex[:8]}"
+
+        try:
+            if auto_provision:
+                gtm_id = _provision_tracking(conn, proj)
+
+            with cloned_workspace(
+                proj.slug, workspace_token, proj.github_url, keep=keep_workspace
+            ) as repo_path:
+                adapter = next((a for a in _ADAPTERS if a.detect(repo_path)), None)
+                if adapter is None:
+                    raise AdapterDetectionError(
+                        f"{slug}의 배포 방식을 자동 감지하지 못했습니다 "
+                        f"(현재 지원: {', '.join(a.name for a in _ADAPTERS)})."
+                    )
+
+                change_set = adapter.inject_tracking(repo_path, gtm_id)
+
+                if change_set is None:
+                    _handle_no_injection_point(conn, proj, gtm_id, repo_path, run_id, yes)
+                    return
+
+                if change_set.already_present:
+                    _handle_already_present(conn, change_set, run_id, yes)
+                    return
+
+                _handle_new_change(conn, proj, gtm_id, change_set, repo_path, run_id, yes)
+        except LensError as exc:
+            if run_id is not None:
+                finish_run(
+                    conn,
+                    run_id,
+                    status="failed",
+                    error_code=type(exc).__name__,
+                    error_summary=str(exc),
+                )
+            raise
+    finally:
+        conn.close()
+
+
+def _provision_tracking(conn, proj) -> str:
+    """GA4 속성/스트림 + GTM 컨테이너/워크스페이스/태그를 찾거나 만들고, GTM ID를 반환한다.
+
+    find-or-create이므로 같은 프로젝트에 대해 여러 번 호출해도 안전하다 (docs/ARCHITECTURE.md).
+    """
+
+    settings = load_settings()
+    if not settings.ga4_account_id or not settings.gtm_account_id:
+        raise ValidationError(
+            "GA4/GTM 기본 계정이 설정되지 않았습니다. `lens creds accounts`로 사용 가능한 계정을 "
+            "확인한 뒤 `lens creds set-accounts --ga4-account-id ... --gtm-account-id ...`를 "
+            "먼저 실행하세요."
+        )
+    if not proj.site_url:
+        raise ValidationError(
+            f"{proj.slug}에 site_url이 설정되지 않았습니다. "
+            f"`lens project set-site-url {proj.slug} <실제 배포 URL>`을 먼저 실행하세요."
+        )
+
+    credentials = load_credentials()
+    ga4_client = ga4.build_client(credentials)
+    gtm_service = gtm.build_client(credentials)
+
+    ga4_property = ga4.find_or_create_property(
+        ga4_client, account_id=settings.ga4_account_id, display_name=proj.slug
+    )
+    ga4_stream = ga4.find_or_create_web_stream(
+        ga4_client,
+        property_name=ga4_property.name,
+        display_name=proj.slug,
+        default_uri=proj.site_url,
+    )
+
+    gtm_container = gtm.find_or_create_container(
+        gtm_service, account_id=settings.gtm_account_id, name=proj.slug
+    )
+    gtm_workspace = gtm.get_default_workspace(
+        gtm_service, account_id=settings.gtm_account_id, container_id=gtm_container.container_id
+    )
+    gtm.ensure_ga4_config_tag(
+        gtm_service,
+        account_id=settings.gtm_account_id,
+        container_id=gtm_container.container_id,
+        workspace_id=gtm_workspace.id,
+        measurement_id=ga4_stream.measurement_id,
+    )
+    published_version = gtm.publish_workspace(
+        gtm_service,
+        account_id=settings.gtm_account_id,
+        container_id=gtm_container.container_id,
+        workspace_id=gtm_workspace.id,
+    )
+
+    upsert_tracking_config(
+        conn,
+        project_id=proj.id,
+        ga4_account_id=settings.ga4_account_id,
+        ga4_property_id=ga4_property.id,
+        ga4_measurement_id=ga4_stream.measurement_id,
+        ga4_stream_id=ga4_stream.id,
+        gtm_account_id=settings.gtm_account_id,
+        gtm_container_id=gtm_container.container_id,
+        gtm_workspace_id=gtm_workspace.id,
+        gtm_last_published_version=published_version,
+    )
+
+    return gtm_container.public_id
+
+
+def _handle_no_injection_point(conn, proj, gtm_id: str, repo_path, run_id, yes: bool) -> None:
+    if not yes:
+        click.echo(
+            f"[dry-run] {proj.slug}: GTM 삽입 지점을 자동으로 찾지 못했습니다 "
+            "(확인 경로: index.html, public/index.html, src/index.html)."
+        )
+        click.echo("  --yes로 실행하면 대신 GitHub 이슈를 생성합니다.")
+        return
+
+    issue_url = create_issue(
+        repo_path,
+        title="[project-lens] GTM 스니펫 자동 삽입 실패 - 수동 확인 필요",
+        body=(
+            f"project-lens가 GTM({gtm_id}) 스니펫을 삽입할 위치를 자동으로 찾지 못했습니다.\n\n"
+            "확인한 경로: `index.html`, `public/index.html`, `src/index.html`\n\n"
+            "이 레포의 실제 구조에 맞게 수동으로 GTM 스니펫을 삽입해주세요."
+        ),
+    )
+    set_project_status(conn, proj.slug, "needs_attention")
+    finish_run(conn, run_id, status="partial", summary=f"삽입 지점 미발견, 이슈 생성: {issue_url}")
+    click.echo(f"삽입 지점을 찾지 못해 이슈를 생성했습니다: {issue_url}")
+
+
+def _handle_already_present(conn, change_set, run_id, yes: bool) -> None:
+    if yes and run_id is not None:
+        finish_run(conn, run_id, status="success", summary=change_set.summary)
+    click.echo(change_set.summary)
+
+
+def _handle_new_change(conn, proj, gtm_id: str, change_set, repo_path, run_id, yes: bool) -> None:
+    if not yes:
+        click.echo(f"[dry-run] {change_set.summary}")
+        click.echo(f"  변경 파일: {', '.join(change_set.changed_files)}")
+        click.echo("  --yes로 실행하면 브랜치 생성 → 커밋 → PR까지 진행합니다.")
+        return
+
+    branch = f"project-lens/add-gtm-tracking-{run_id}"
+    create_branch(repo_path, branch)
+    commit_sha = commit_all(
+        repo_path,
+        f"chore(tracking): add GTM snippet ({gtm_id})\n\nproject-lens automated commit.",
+    )
+    push_branch(repo_path, branch)
+    pr_url = create_pull_request(
+        repo_path,
+        title=f"chore(tracking): GTM 스니펫 추가 ({gtm_id})",
+        body=(
+            "project-lens가 자동 생성한 PR입니다.\n\n"
+            f"- {change_set.summary}\n"
+            f"- GTM 컨테이너: {gtm_id}\n"
+        ),
+        base=proj.default_branch,
+    )
+
+    set_project_status(conn, proj.slug, "active")
+    finish_run(
+        conn,
+        run_id,
+        status="success",
+        commit_sha=commit_sha,
+        pr_url=pr_url,
+        summary=change_set.summary,
+    )
+    click.echo(f"완료: {pr_url}")
+
+
+def _entrypoint() -> None:
+    try:
+        main()
+    except LensError as exc:
+        click.secho(f"오류: {exc}", fg="red", err=True)
+        raise SystemExit(1) from exc
+
+
+if __name__ == "__main__":
+    _entrypoint()
