@@ -38,3 +38,9 @@ def workspace_dir() -> Path:
     path = home_dir() / "workspace"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def reports_dir() -> Path:
+    path = home_dir() / "reports"
+    path.mkdir(parents=True, exist_ok=True)
+    return path

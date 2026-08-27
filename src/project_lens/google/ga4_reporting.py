@@ -13,7 +13,7 @@ from google.analytics.data_v1beta.types import DateRange, Metric, RunReportReque
 from google.api_core.exceptions import GoogleAPICallError
 from google.oauth2.credentials import Credentials
 
-from project_lens.errors import GoogleAPIError
+from project_lens.errors import GoogleAPIError, short
 
 _METRICS = ("activeUsers", "sessions", "screenPageViews", "bounceRate", "averageSessionDuration")
 
@@ -48,7 +48,7 @@ def run_summary_report(
         )
         response = client.run_report(request=request)
     except GoogleAPICallError as exc:
-        raise GoogleAPIError(f"GA4 리포트 조회 실패(properties/{property_id}): {exc}") from exc
+        raise GoogleAPIError(f"GA4 리포트 조회 실패(properties/{property_id}): {short(exc)}") from exc
 
     if not response.rows:
         return Ga4ReportSummary("0", "0", "0", "0", "0")

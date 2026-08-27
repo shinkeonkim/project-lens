@@ -33,3 +33,14 @@ class GoogleAPIError(LensError):
 
 class DeployError(LensError):
     """배포(PR 생성/직접 배포) 단계 실패."""
+
+
+def short(exc: Exception) -> str:
+    """Google API 예외의 첫 줄만 취한다.
+
+    `GoogleAPICallError`/`GoogleAdsException`의 `str()`은 gRPC 메타데이터를 여러 줄에
+    걸쳐 그대로 덤프해서, 리포트 여러 건을 한 화면에 모아 보여줄 때(`lens track
+    report-all`) 한 건의 에러가 화면을 다 채워버린다. 원인 파악에 필요한 핵심 메시지는
+    첫 줄에 있다.
+    """
+    return str(exc).split("\n", 1)[0]

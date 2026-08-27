@@ -25,7 +25,7 @@ from google.ads.googleads.v25.services.types.conversion_action_service import (
 )
 from google.oauth2.credentials import Credentials
 
-from project_lens.errors import GoogleAPIError
+from project_lens.errors import GoogleAPIError, short
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,7 @@ def find_or_create_conversion_action(
         conversion_action_id = resource_name.rsplit("/", 1)[-1]
         return AdsConversionAction(id=conversion_action_id, resource_name=resource_name, name=name)
     except GoogleAdsException as exc:
-        raise GoogleAPIError(f"Ads 전환 액션 생성/조회 실패({name}): {exc}") from exc
+        raise GoogleAPIError(f"Ads 전환 액션 생성/조회 실패({name}): {short(exc)}") from exc
 
 
 _DATE_RANGE_PRESETS = {"7d": "LAST_7_DAYS", "30d": "LAST_30_DAYS"}
@@ -134,7 +134,7 @@ def run_summary_report(
             conversions=conversions,
         )
     except GoogleAdsException as exc:
-        raise GoogleAPIError(f"Ads 리포트 조회 실패(customer_id={customer_id}): {exc}") from exc
+        raise GoogleAPIError(f"Ads 리포트 조회 실패(customer_id={customer_id}): {short(exc)}") from exc
 
 
 def _escape_gaql(value: str) -> str:

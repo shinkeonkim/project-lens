@@ -12,7 +12,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import Resource, build
 from googleapiclient.errors import HttpError
 
-from project_lens.errors import GoogleAPIError
+from project_lens.errors import GoogleAPIError, short
 
 # GTM 콘솔에서 'GA4 구성' 태그를 만들 때 내부적으로 쓰는 태그 템플릿 ID.
 # 공식 REST 문서에는 명시되어 있지 않고, GTM 내보내기(export)와 Terraform
@@ -50,7 +50,7 @@ def list_accounts(service: Resource) -> list[GtmAccount]:
         response = service.accounts().list().execute()
         return [GtmAccount(id=a["accountId"], name=a["name"]) for a in response.get("account", [])]
     except HttpError as exc:
-        raise GoogleAPIError(f"GTM 계정 목록 조회 실패: {exc}") from exc
+        raise GoogleAPIError(f"GTM 계정 목록 조회 실패: {short(exc)}") from exc
 
 
 def find_or_create_container(service: Resource, *, account_id: str, name: str) -> GtmContainer:
@@ -77,7 +77,7 @@ def find_or_create_container(service: Resource, *, account_id: str, name: str) -
             public_id=created["publicId"],
         )
     except HttpError as exc:
-        raise GoogleAPIError(f"GTM 컨테이너 생성/조회 실패({name}): {exc}") from exc
+        raise GoogleAPIError(f"GTM 컨테이너 생성/조회 실패({name}): {short(exc)}") from exc
 
 
 def get_default_workspace(service: Resource, *, account_id: str, container_id: str) -> GtmWorkspace:
@@ -91,7 +91,7 @@ def get_default_workspace(service: Resource, *, account_id: str, container_id: s
             raise GoogleAPIError(f"{parent}에 워크스페이스가 없습니다 (예상치 못한 상태).")
         return GtmWorkspace(id=workspaces[0]["workspaceId"])
     except HttpError as exc:
-        raise GoogleAPIError(f"GTM 워크스페이스 조회 실패: {exc}") from exc
+        raise GoogleAPIError(f"GTM 워크스페이스 조회 실패: {short(exc)}") from exc
 
 
 def ensure_ga4_config_tag(
@@ -125,7 +125,7 @@ def ensure_ga4_config_tag(
         ).execute()
         return created["tagId"]
     except HttpError as exc:
-        raise GoogleAPIError(f"GA4 Configuration 태그 생성/조회 실패: {exc}") from exc
+        raise GoogleAPIError(f"GA4 Configuration 태그 생성/조회 실패: {short(exc)}") from exc
 
 
 def _find_or_create_all_pages_trigger(service: Resource, parent: str) -> str:
@@ -157,4 +157,4 @@ def publish_workspace(service: Resource, *, account_id: str, container_id: str, 
         service.accounts().containers().versions().publish(path=version["path"]).execute()
         return version["containerVersionId"]
     except HttpError as exc:
-        raise GoogleAPIError(f"GTM 워크스페이스 게시 실패: {exc}") from exc
+        raise GoogleAPIError(f"GTM 워크스페이스 게시 실패: {short(exc)}") from exc

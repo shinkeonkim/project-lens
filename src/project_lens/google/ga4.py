@@ -13,7 +13,7 @@ from google.analytics.admin_v1beta.types import DataStream, GoogleAdsLink, Prope
 from google.api_core.exceptions import GoogleAPICallError
 from google.oauth2.credentials import Credentials
 
-from project_lens.errors import GoogleAPIError
+from project_lens.errors import GoogleAPIError, short
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ def list_accounts(client: AnalyticsAdminServiceClient) -> list[Ga4Account]:
             for account in accounts
         ]
     except GoogleAPICallError as exc:
-        raise GoogleAPIError(f"GA4 계정 목록 조회 실패: {exc}") from exc
+        raise GoogleAPIError(f"GA4 계정 목록 조회 실패: {short(exc)}") from exc
 
 
 def find_or_create_property(
@@ -82,7 +82,7 @@ def find_or_create_property(
         )
         return Ga4Property(id=created.name.removeprefix("properties/"), name=created.name)
     except GoogleAPICallError as exc:
-        raise GoogleAPIError(f"GA4 속성 생성/조회 실패({display_name}): {exc}") from exc
+        raise GoogleAPIError(f"GA4 속성 생성/조회 실패({display_name}): {short(exc)}") from exc
 
 
 def find_or_create_web_stream(
@@ -116,7 +116,7 @@ def find_or_create_web_stream(
             measurement_id=created.web_stream_data.measurement_id,
         )
     except GoogleAPICallError as exc:
-        raise GoogleAPIError(f"GA4 데이터 스트림 생성/조회 실패({display_name}): {exc}") from exc
+        raise GoogleAPIError(f"GA4 데이터 스트림 생성/조회 실패({display_name}): {short(exc)}") from exc
 
 
 def ensure_google_ads_link(
@@ -138,4 +138,4 @@ def ensure_google_ads_link(
         )
         return Ga4GoogleAdsLink(name=created.name, customer_id=created.customer_id)
     except GoogleAPICallError as exc:
-        raise GoogleAPIError(f"GA4-Ads 연결 생성/조회 실패(customer_id={customer_id}): {exc}") from exc
+        raise GoogleAPIError(f"GA4-Ads 연결 생성/조회 실패(customer_id={customer_id}): {short(exc)}") from exc

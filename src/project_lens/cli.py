@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 import click
 
@@ -9,6 +10,7 @@ from project_lens.adapters.cloudflare_workers import CloudflareWorkersAdapter
 from project_lens.adapters.github_pages import GitHubPagesAdapter
 from project_lens.adapters.oh_my_homelab import OhMyHomelabAdapter
 from project_lens.adapters.vercel import VercelAdapter
+from project_lens.config import reports_dir
 from project_lens.errors import AdapterDetectionError, LensError, ValidationError
 from project_lens.github.client import ensure_authenticated, view_repo
 from project_lens.github.repo_ops import (
@@ -610,56 +612,12 @@ def track_report(slug: str, date_range: str) -> None:
         run_id = start_run(conn, project_id=proj.id, run_type="report")
         try:
             credentials = load_credentials()
-            data_client = ga4_reporting.build_client(credentials)
-            start_date = "30daysAgo" if date_range == "30d" else "7daysAgo"
-            ga4_summary = ga4_reporting.run_summary_report(
-                data_client, property_id=tracking.ga4_property_id, start_date=start_date
+            lines, summary_line = _fetch_project_report_lines(
+                credentials, proj, tracking, date_range
             )
-
-            click.echo(f"{slug} — 최근 {date_range} GA4 리포트")
-            click.echo(f"  방문자(활성 사용자): {ga4_summary.active_users}")
-            click.echo(f"  세션: {ga4_summary.sessions}")
-            click.echo(f"  페이지뷰: {ga4_summary.page_views}")
-            click.echo(f"  이탈률: {float(ga4_summary.bounce_rate) * 100:.1f}%")
-            click.echo(
-                f"  평균 세션 시간: {float(ga4_summary.avg_session_duration_seconds):.0f}초"
-            )
-
-            if tracking.ads_customer_id and has_ads_developer_token():
-                developer_token = load_ads_developer_token()
-                account_profile = load_settings().profile_for_org(proj.github_org)
-                ads_client = ads.build_client(
-                    credentials,
-                    developer_token=developer_token,
-                    login_customer_id=account_profile.ads_login_customer_id,
-                )
-                ads_summary = ads.run_summary_report(
-                    ads_client, customer_id=tracking.ads_customer_id, date_range=date_range
-                )
-                ctr = (
-                    (ads_summary.clicks / ads_summary.impressions * 100)
-                    if ads_summary.impressions
-                    else 0.0
-                )
-                click.echo("  --- Google Ads ---")
-                click.echo(f"  노출수: {ads_summary.impressions}")
-                click.echo(f"  클릭수: {ads_summary.clicks} (CTR {ctr:.2f}%)")
-                click.echo(f"  비용: {ads_summary.cost:.2f}")
-                click.echo(f"  전환수: {ads_summary.conversions:.1f}")
-            elif tracking.ads_customer_id:
-                click.echo(
-                    "  (Ads 연결은 돼 있지만 Developer Token이 없어 Ads 지표는 건너뜁니다)"
-                )
-
-            finish_run(
-                conn,
-                run_id,
-                status="success",
-                summary=(
-                    f"GA4 리포트 조회 완료 (방문자 {ga4_summary.active_users}, "
-                    f"세션 {ga4_summary.sessions})"
-                ),
-            )
+            for line in lines:
+                click.echo(line)
+            finish_run(conn, run_id, status="success", summary=summary_line)
         except Exception as exc:
             finish_run(
                 conn, run_id, status="failed", error_code=type(exc).__name__, error_summary=str(exc)
@@ -667,6 +625,130 @@ def track_report(slug: str, date_range: str) -> None:
             raise
     finally:
         conn.close()
+
+
+@track.command("report-all")
+@click.option(
+    "--range",
+    "date_range",
+    type=click.Choice(["7d", "30d"]),
+    default="7d",
+    help="조회 기간 (기본 7일).",
+)
+def track_report_all(date_range: str) -> None:
+    """GA4가 세팅된 모든 프로젝트의 성과를 한 번에 조회합니다.
+
+    읽기 전용입니다. 결과는 화면에 출력하고 ~/.project-lens/reports/에도 저장합니다 —
+    launchd 등으로 비대화형 실행할 때도 기록이 남도록 (docs/SCHEDULED_REPORTS.md).
+    """
+
+    conn = connect()
+    try:
+        projects = [p for p in list_projects(conn) if p.status != "archived"]
+
+        credentials = None
+        sections: list[str] = []
+        error_lines: list[str] = []
+        skipped = 0
+
+        for proj in projects:
+            tracking = get_tracking_config(conn, proj.id)
+            if tracking is None or not tracking.ga4_property_id:
+                skipped += 1
+                continue
+
+            run_id = start_run(conn, project_id=proj.id, run_type="report")
+            try:
+                if credentials is None:
+                    credentials = load_credentials()
+                lines, summary_line = _fetch_project_report_lines(
+                    credentials, proj, tracking, date_range
+                )
+                sections.append("\n".join(lines))
+                finish_run(conn, run_id, status="success", summary=summary_line)
+            except Exception as exc:
+                finish_run(
+                    conn,
+                    run_id,
+                    status="failed",
+                    error_code=type(exc).__name__,
+                    error_summary=str(exc),
+                )
+                error_lines.append(f"{proj.slug}: {type(exc).__name__} — {exc}")
+    finally:
+        conn.close()
+
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    header = f"project-lens 리포트 — 최근 {date_range} (생성 시각: {generated_at})"
+    body_parts = [header, ""]
+    body_parts.append("\n\n".join(sections) if sections else "(GA4가 세팅된 프로젝트가 없습니다)")
+    if error_lines:
+        body_parts.append("")
+        body_parts.append("조회 실패:")
+        body_parts.extend(f"  {line}" for line in error_lines)
+    if skipped:
+        body_parts.append("")
+        body_parts.append(f"({skipped}개 프로젝트는 GA4가 아직 없어 건너뜀)")
+
+    report_text = "\n".join(body_parts)
+    click.echo(report_text)
+
+    report_path = reports_dir() / f"{datetime.now(timezone.utc).date().isoformat()}.txt"
+    report_path.write_text(report_text, encoding="utf-8")
+    click.echo("")
+    click.echo(f"저장됨: {report_path}")
+
+
+def _fetch_project_report_lines(
+    credentials, proj, tracking, date_range: str
+) -> tuple[list[str], str]:
+    """GA4(+가능하면 Ads) 요약을 사람이 읽는 줄 목록과 감사용 한 줄 요약으로 반환한다."""
+
+    data_client = ga4_reporting.build_client(credentials)
+    start_date = "30daysAgo" if date_range == "30d" else "7daysAgo"
+    ga4_summary = ga4_reporting.run_summary_report(
+        data_client, property_id=tracking.ga4_property_id, start_date=start_date
+    )
+
+    lines = [
+        f"{proj.slug} — 최근 {date_range} GA4 리포트",
+        f"  방문자(활성 사용자): {ga4_summary.active_users}",
+        f"  세션: {ga4_summary.sessions}",
+        f"  페이지뷰: {ga4_summary.page_views}",
+        f"  이탈률: {float(ga4_summary.bounce_rate) * 100:.1f}%",
+        f"  평균 세션 시간: {float(ga4_summary.avg_session_duration_seconds):.0f}초",
+    ]
+
+    if tracking.ads_customer_id and has_ads_developer_token():
+        developer_token = load_ads_developer_token()
+        account_profile = load_settings().profile_for_org(proj.github_org)
+        ads_client = ads.build_client(
+            credentials,
+            developer_token=developer_token,
+            login_customer_id=account_profile.ads_login_customer_id,
+        )
+        ads_summary = ads.run_summary_report(
+            ads_client, customer_id=tracking.ads_customer_id, date_range=date_range
+        )
+        ctr = (
+            (ads_summary.clicks / ads_summary.impressions * 100)
+            if ads_summary.impressions
+            else 0.0
+        )
+        lines += [
+            "  --- Google Ads ---",
+            f"  노출수: {ads_summary.impressions}",
+            f"  클릭수: {ads_summary.clicks} (CTR {ctr:.2f}%)",
+            f"  비용: {ads_summary.cost:.2f}",
+            f"  전환수: {ads_summary.conversions:.1f}",
+        ]
+    elif tracking.ads_customer_id:
+        lines.append("  (Ads 연결은 돼 있지만 Developer Token이 없어 Ads 지표는 건너뜁니다)")
+
+    summary_line = (
+        f"GA4 리포트 조회 완료 (방문자 {ga4_summary.active_users}, 세션 {ga4_summary.sessions})"
+    )
+    return lines, summary_line
 
 
 def _provision_tracking(conn, proj) -> str:
