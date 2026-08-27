@@ -116,6 +116,50 @@ def test_inject_tracking_returns_none_when_html_missing_head_or_body(tmp_path):
     assert CloudflareWorkersAdapter().inject_tracking(tmp_path, "GTM-ABC1234") is None
 
 
+SVELTEKIT_APP_HTML = """<!doctype html>
+<html lang="%paraglide.lang%">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
+"""
+
+
+def test_inject_tracking_finds_sveltekit_src_app_html(tmp_path):
+    """실제로 base64-code/qr-gen(SvelteKit)이 이 구조라 삽입 지점을 못 찾고 이슈만 남겼던 회귀 테스트."""
+
+    _mark_wrangler_project(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.html").write_text(SVELTEKIT_APP_HTML)
+
+    change_set = CloudflareWorkersAdapter().inject_tracking(tmp_path, "GTM-ABC1234")
+
+    assert change_set is not None
+    assert change_set.changed_files == ("src/app.html",)
+    assert "GTM-ABC1234" in (tmp_path / "src" / "app.html").read_text()
+
+
+def test_inject_tracking_falls_back_to_any_html_with_head_and_body(tmp_path):
+    """알려진 후보 경로 어디에도 없는 구조 — 범용 폴백이 head/body 있는 html을 찾아야 함."""
+
+    _mark_wrangler_project(tmp_path)
+    (tmp_path / "custom_entry").mkdir()
+    (tmp_path / "custom_entry" / "root.html").write_text(SAMPLE_HTML)
+    (tmp_path / "node_modules" / "some_pkg").mkdir(parents=True)
+    (tmp_path / "node_modules" / "some_pkg" / "index.html").write_text(SAMPLE_HTML)
+
+    change_set = CloudflareWorkersAdapter().inject_tracking(tmp_path, "GTM-ABC1234")
+
+    assert change_set is not None
+    assert change_set.changed_files == ("custom_entry/root.html",)
+
+
 def test_detect_true_for_nested_wrangler_project(tmp_path):
     site = tmp_path / "site"
     site.mkdir()

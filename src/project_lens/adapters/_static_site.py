@@ -15,7 +15,27 @@ from pathlib import Path
 
 from project_lens.adapters.base import ChangeSet
 
-_HTML_ENTRY_CANDIDATES = ("index.html", "public/index.html", "src/index.html")
+_HTML_ENTRY_CANDIDATES = (
+    "index.html",
+    "public/index.html",
+    "src/index.html",
+    # SvelteKit 관례: 커스텀 <head>/<body>는 index.html이 아니라 src/app.html에 있다.
+    "src/app.html",
+    "app.html",
+)
+
+# 위 후보 목록에 없는 구조를 위한 폴백. node_modules/빌드 산출물 디렉터리는 제외하고,
+# <head>와 <body> 태그를 모두 가진 첫 *.html을 프로젝트 진입점으로 간주한다.
+_IGNORED_DIR_NAMES = {
+    "node_modules",
+    "dist",
+    "build",
+    ".svelte-kit",
+    ".next",
+    ".output",
+    ".vercel",
+    ".git",
+}
 _DOCUSAURUS_CONFIG_CANDIDATES = ("docusaurus.config.ts", "docusaurus.config.js")
 _ASTRO_CONFIG_CANDIDATES = ("astro.config.mjs", "astro.config.ts", "astro.config.js")
 
@@ -191,6 +211,13 @@ def _find_html_entry(project_root: Path) -> Path | None:
     for candidate in _HTML_ENTRY_CANDIDATES:
         path = project_root / candidate
         if path.exists():
+            return path
+
+    for path in sorted(project_root.rglob("*.html")):
+        if _IGNORED_DIR_NAMES & set(path.relative_to(project_root).parts):
+            continue
+        content = path.read_text(encoding="utf-8", errors="ignore")
+        if _HEAD_RE.search(content) and _BODY_RE.search(content):
             return path
     return None
 
