@@ -142,6 +142,22 @@ def get_latest_run(conn: sqlite3.Connection, project_id: int) -> DeployRun | Non
     return DeployRun.from_row(row) if row else None
 
 
+def get_latest_pr_run(conn: sqlite3.Connection, project_id: int) -> DeployRun | None:
+    """PR이 실제로 만들어진 가장 최근 run을 찾는다.
+
+    `get_latest_run`은 run_type을 안 가리므로, sync 이후에 report 같은 run이 쌓이면
+    (pr_url이 없는 run이 더 최근이 되어) PR 정보가 가려진다 — 대시보드처럼 "그 프로젝트에
+    PR이 있었는지"를 보여줘야 하는 곳에서는 이 함수를 쓴다.
+    """
+
+    row = conn.execute(
+        "SELECT * FROM deploy_runs WHERE project_id = ? AND pr_url IS NOT NULL "
+        "ORDER BY id DESC LIMIT 1",
+        (project_id,),
+    ).fetchone()
+    return DeployRun.from_row(row) if row else None
+
+
 def upsert_tracking_config(
     conn: sqlite3.Connection,
     *,

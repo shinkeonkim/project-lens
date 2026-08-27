@@ -84,6 +84,25 @@ def view_repo(url: str) -> RepoInfo:
     )
 
 
+def pr_state(pr_url: str) -> str | None:
+    """PR_URL의 상태(OPEN/MERGED/CLOSED)를 조회한다. 실패하면 None(대시보드 등에서
+
+    조회 하나 실패했다고 전체를 실패시키지 않기 위해 예외 대신 None을 씀)."""
+
+    result = subprocess.run(
+        ["gh", "pr", "view", pr_url, "--json", "state"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)["state"]
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
 def clone_repo(github_url: str, dest: Path) -> None:
     """github_url을 dest 경로로 clone한다. dest는 호출 전 존재하지 않아야 한다."""
 

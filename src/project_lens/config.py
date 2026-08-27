@@ -44,3 +44,7 @@ def reports_dir() -> Path:
     path = home_dir() / "reports"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def dashboard_path() -> Path:
+    return home_dir() / "dashboard.html"

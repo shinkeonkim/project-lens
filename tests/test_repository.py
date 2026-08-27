@@ -5,6 +5,7 @@ import pytest
 from project_lens.registry.db import connect
 from project_lens.registry.repository import (
     finish_run,
+    get_latest_pr_run,
     get_latest_run,
     get_project,
     get_run,
@@ -359,3 +360,50 @@ def test_get_latest_run_returns_none_when_no_runs(conn):
         default_branch="main",
     )
     assert get_latest_run(conn, project_record.id) is None
+
+
+def test_get_latest_pr_run_survives_later_report_runs(conn):
+    """회귀 테스트: sync 이후 report(pr_url 없음)가 더 최근이어도 PR을 잃지 않아야 한다.
+
+    실제로 lens dashboard/lens project show가 이 버그로 "PR 없음"을 잘못 보여줬었다."""
+
+    project_record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+    )
+
+    sync_run = start_run(conn, project_id=project_record.id, run_type="sync")
+    finish_run(
+        conn,
+        sync_run,
+        status="success",
+        pr_url="https://github.com/kokoa-lab/dice-art/pull/1",
+        summary="GTM 삽입 완료",
+    )
+    report_run = start_run(conn, project_id=project_record.id, run_type="report")
+    finish_run(conn, report_run, status="success", summary="GA4 리포트 조회 완료")
+
+    assert get_latest_run(conn, project_record.id).id == report_run  # 최신 run은 report
+
+    latest_pr = get_latest_pr_run(conn, project_record.id)
+    assert latest_pr.id == sync_run
+    assert latest_pr.pr_url == "https://github.com/kokoa-lab/dice-art/pull/1"
+
+
+def test_get_latest_pr_run_returns_none_when_no_pr_ever(conn):
+    project_record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+    )
+    report_run = start_run(conn, project_id=project_record.id, run_type="report")
+    finish_run(conn, report_run, status="success")
+
+    assert get_latest_pr_run(conn, project_record.id) is None
