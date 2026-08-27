@@ -397,7 +397,12 @@ def track_sync(slug: str, gtm_id: str | None, yes: bool, keep_workspace: bool) -
                     return
 
                 _handle_new_change(conn, proj, gtm_id, change_set, repo_path, run_id, yes, adapter)
-        except LensError as exc:
+        except Exception as exc:
+            # LensError뿐 아니라 어떤 예외든(Google 클라이언트 라이브러리가 던지는 원시
+            # TypeError/RefreshError 포함) run을 'running'으로 남겨두지 않고 실패로
+            # 기록한다 — 실제로 list_properties() 호출 시그니처 오류, OAuth 스코프
+            # 부족으로 인한 RefreshError가 LensError가 아니라서 이 처리가 없으면
+            # deploy_runs에 영영 끝나지 않는 'running' 행이 남았다.
             if run_id is not None:
                 finish_run(
                     conn,
@@ -507,7 +512,7 @@ def track_link_ads(slug: str, customer_id: str, yes: bool) -> None:
                 summary += f", 전환 액션: {conversion_action_resource_name}"
             finish_run(conn, run_id, status="success", summary=summary)
             click.echo(summary)
-        except LensError as exc:
+        except Exception as exc:
             finish_run(
                 conn, run_id, status="failed", error_code=type(exc).__name__, error_summary=str(exc)
             )

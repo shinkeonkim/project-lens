@@ -190,6 +190,32 @@ def test_adapter_not_detected_marks_run_failed(registered_project, fake_workspac
     assert run_row["error_code"] == "AdapterDetectionError"
 
 
+def test_non_lens_error_still_marks_run_failed(registered_project, fake_workspace, monkeypatch):
+    """LensError가 아닌 예외(Google 클라이언트 라이브러리의 원시 TypeError 등)도
+
+    run을 'running'으로 남기지 않고 실패로 기록해야 한다 (실사용 중 발견한 버그의
+    회귀 테스트 — list_properties() 시그니처 오류가 이 경로로 새 나갔었다)."""
+
+    class ExplodingAdapter(FakeAdapter):
+        def inject_tracking(self, repo_path, gtm_id):
+            raise TypeError("list_properties() got an unexpected keyword argument 'filter'")
+
+    monkeypatch.setattr(cli, "_ADAPTERS", [ExplodingAdapter()])
+
+    runner = CliRunner()
+    result = runner.invoke(cli.main, ["track", "sync", SLUG, "--gtm-id", "GTM-TEST", "--yes"])
+
+    assert result.exit_code != 0
+
+    conn = connect()
+    try:
+        run_row = conn.execute("SELECT status, error_code FROM deploy_runs").fetchone()
+    finally:
+        conn.close()
+    assert run_row["status"] == "failed"
+    assert run_row["error_code"] == "TypeError"
+
+
 def test_unregistered_project_errors_without_touching_db(lens_home, fake_workspace):
     runner = CliRunner()
     result = runner.invoke(cli.main, ["track", "sync", "no-such-slug", "--gtm-id", "GTM-TEST", "--yes"])
