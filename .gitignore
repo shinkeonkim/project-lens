@@ -1,0 +1,16 @@
+# 자격증명 및 로컬 상태 — project-lens 레포에는 절대 커밋되지 않아야 함
+.env
+.env.*
+credentials/
+*.sqlite3
+*.jsonl
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# OS
+.DS_Store

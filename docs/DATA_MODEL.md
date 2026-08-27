@@ -1,0 +1,98 @@
+# 데이터 모델 (SQLite 레지스트리)
+
+DB 위치: `~/.project-lens/registry.sqlite3` (레포 바깥, git 추적 대상 아님).
+민감정보(토큰 등)는 절대 이 DB에 저장하지 않습니다 — GA4/GTM/Ads의 **ID 값**(속성 ID,
+컨테이너 ID, 전환 액션 ID 등)만 저장하며, 이는 비밀이 아니라 식별자입니다.
+
+## projects
+
+프로젝트(=하나의 웹사이트 레포) 단위 레지스트리.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | INTEGER PK | |
+| slug | TEXT UNIQUE | `org-repo` 형태, 커맨드에서 프로젝트 지칭에 사용 |
+| name | TEXT | 표시용 이름 |
+| github_url | TEXT | 원본 URL |
+| github_org | TEXT | `kokoa-lab`, `shinkeonkim` 등 |
+| github_repo | TEXT | |
+| visibility | TEXT | `public` \| `private` |
+| default_branch | TEXT | |
+| deployment_type | TEXT | `cloudflare_workers` \| `oh_my_homelab` \| `unknown` |
+| deploy_mode | TEXT | `pr`(기본) \| `direct` — 프로젝트별 옵트인 |
+| status | TEXT | `pending` \| `active` \| `needs_attention` \| `archived` |
+| notes | TEXT | 자유 메모 |
+| created_at | TEXT (ISO8601) | |
+| updated_at | TEXT (ISO8601) | |
+
+## tracking_configs
+
+프로젝트별 GA4/GTM/Ads 연결 정보. `project_id`에 1:1.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | INTEGER PK | |
+| project_id | INTEGER FK → projects.id | |
+| ga4_property_id | TEXT | |
+| ga4_measurement_id | TEXT | `G-XXXXXXX` |
+| ga4_stream_id | TEXT | |
+| gtm_account_id | TEXT | |
+| gtm_container_id | TEXT | `GTM-XXXXXXX` |
+| gtm_workspace_id | TEXT | |
+| gtm_last_published_version | TEXT | |
+| ads_customer_id | TEXT | |
+| ads_conversion_action_ids | TEXT (JSON array) | |
+| config_version | INTEGER | 스니펫/태그 구성 스키마 버전, drift 감지용 |
+| last_synced_at | TEXT (ISO8601) | |
+
+## deploy_runs
+
+명령 실행(등록/동기화/배포/검증) 1회 = 1 row. 감사(audit) 및 `/lens-logs`의 기반.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | INTEGER PK | run_id로 사용 |
+| project_id | INTEGER FK | |
+| run_type | TEXT | `register` \| `sync` \| `deploy` \| `verify` \| `report` |
+| status | TEXT | `success` \| `failed` \| `partial` |
+| started_at | TEXT | |
+| finished_at | TEXT | |
+| commit_sha | TEXT | 삽입 커밋(있는 경우) |
+| pr_url | TEXT | PR 모드일 때 |
+| log_path | TEXT | `~/.project-lens/logs/...jsonl` 경로 |
+| error_code | TEXT | 실패 시 에러 타입 |
+| error_summary | TEXT | 사람이 읽는 요약 |
+
+## change_log
+
+필드 단위 변경 이력. 프로젝트 간 비교/추후 재구성 시 "무엇이 언제 왜 바뀌었는지" 추적용.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | INTEGER PK | |
+| project_id | INTEGER FK | |
+| run_id | INTEGER FK → deploy_runs.id | |
+| field_changed | TEXT | 예: `tracking_configs.gtm_container_id` |
+| old_value | TEXT | |
+| new_value | TEXT | |
+| changed_at | TEXT | |
+
+## credentials_meta
+
+**비밀 값 자체는 저장하지 않음.** 어떤 자격증명이 언제 마지막으로 검증됐는지만 추적해
+`/lens-creds-setup`이 만료/누락을 미리 경고할 수 있게 함.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | INTEGER PK | |
+| provider | TEXT | `github` \| `google_ga4` \| `google_gtm` \| `google_ads` |
+| scope | TEXT | 필요한 OAuth scope 등 |
+| last_verified_at | TEXT | |
+| expires_at | TEXT NULL | 알 수 있는 경우만 |
+| status | TEXT | `ok` \| `expiring_soon` \| `missing` \| `invalid` |
+
+## 마이그레이션
+
+스키마 변경은 단순 순번 마이그레이션 스크립트(`src/project_lens/registry/migrations/NNNN_*.sql`)로
+관리하고, `lens db migrate`로 적용합니다. 초기 버전은 별도 ORM 없이 표준 라이브러리 `sqlite3` +
+얇은 repository 함수로 구현해 의존성을 최소화합니다.
