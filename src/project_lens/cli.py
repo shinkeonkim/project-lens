@@ -17,7 +17,14 @@ from project_lens.dashboard import DEFAULT_SERVE_PORT, render_dashboard_html
 from project_lens.dashboard_data import collect_dashboard_rows
 from project_lens.dashboard_server import run_dashboard_server
 from project_lens.errors import AdapterDetectionError, LensError, ValidationError
-from project_lens.github.client import ensure_authenticated, fetch_license, fetch_readme, view_repo
+from project_lens.github.client import (
+    DependabotAlertsResult,
+    ensure_authenticated,
+    fetch_dependabot_alerts,
+    fetch_license,
+    fetch_readme,
+    view_repo,
+)
 from project_lens.readme_audit import ReadmeStatus, classify_readme, verdict_label
 from project_lens.github.repo_ops import (
     commit_all,
@@ -1047,6 +1054,66 @@ def license_audit_cmd() -> None:
     widths = [max(len(str(row[i])) for row in ([headers] + rows)) for i in range(len(headers))]
     for row in [headers, tuple("-" * w for w in widths)] + rows:
         click.echo("  ".join(str(cell).ljust(w) for cell, w in zip(row, widths)))
+
+
+@main.command("vuln-audit")
+def vuln_audit_cmd() -> None:
+    """등록된 모든 프로젝트의 열린 Dependabot 취약점 알림을 점검합니다."""
+
+    conn = connect()
+    try:
+        projects = list_projects(conn)
+    finally:
+        conn.close()
+
+    if not projects:
+        click.echo("등록된 프로젝트가 없습니다.")
+        return
+
+    results: dict[str, DependabotAlertsResult] = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(fetch_dependabot_alerts, proj.github_org, proj.github_repo): proj
+            for proj in projects
+        }
+        for future in futures:
+            proj = futures[future]
+            results[proj.slug] = future.result()
+
+    disabled = [slug for slug, r in results.items() if r.status == "disabled"]
+    with_alerts = {slug: r for slug, r in results.items() if r.status == "ok" and r.alerts}
+    clean = [slug for slug, r in results.items() if r.status == "ok" and not r.alerts]
+    errored = [slug for slug, r in results.items() if r.status == "error"]
+
+    total_open = sum(len(r.alerts) for r in with_alerts.values())
+    click.echo(
+        f"전체 {len(results)}개 중 {len(with_alerts)}개 프로젝트에 열린 취약점 "
+        f"{total_open}건, {len(disabled)}개는 Dependabot 알림이 꺼져 있어 확인 불가.\n"
+    )
+
+    if with_alerts:
+        click.echo("열린 취약점:")
+        for slug, result in sorted(with_alerts.items()):
+            by_severity: dict[str, int] = {}
+            for alert in result.alerts:
+                by_severity[alert["severity"]] = by_severity.get(alert["severity"], 0) + 1
+            severity_summary = ", ".join(
+                f"{sev} {count}건" for sev, count in sorted(by_severity.items())
+            )
+            packages = ", ".join(sorted({a["package"] for a in result.alerts}))
+            click.echo(f"  {slug}: {severity_summary} ({packages})")
+        click.echo("")
+
+    if disabled:
+        click.echo(f"Dependabot 알림 꺼짐 ({len(disabled)}개): {', '.join(sorted(disabled))}")
+        click.echo(
+            "  활성화하려면: gh api -X PUT repos/<org>/<repo>/vulnerability-alerts\n"
+        )
+
+    if errored:
+        click.echo(f"확인 실패 ({len(errored)}개): {', '.join(sorted(errored))}")
+
+    click.echo(f"취약점 없음: {len(clean)}개")
 
 
 def _entrypoint() -> None:

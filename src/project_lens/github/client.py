@@ -146,6 +146,44 @@ def fetch_license(org: str, repo: str) -> str | None:
     return name or None
 
 
+@dataclass(frozen=True)
+class DependabotAlertsResult:
+    status: str  # "ok" | "disabled" | "error"
+    alerts: tuple[dict, ...] = ()  # {"severity": str, "package": str} — status == "ok"일 때만
+
+
+def fetch_dependabot_alerts(org: str, repo: str) -> DependabotAlertsResult:
+    """열려 있는 Dependabot 취약점 알림을 가져온다.
+
+    많은 개인 사이드 프로젝트 레포는 Dependabot 알림 자체가 꺼져 있다 — 그 상태를
+    "취약점 0개"와 구분해서 status="disabled"로 알려준다(꺼져 있으면 실제로 취약점이
+    있어도 절대 안 보인다는 뜻이라 별개로 다뤄야 함).
+    """
+
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            f"repos/{org}/{repo}/dependabot/alerts?state=open",
+            "--jq",
+            "[.[] | {severity: .security_advisory.severity, package: .dependency.package.name}]",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        if "disabled for this repository" in result.stderr:
+            return DependabotAlertsResult(status="disabled")
+        return DependabotAlertsResult(status="error")
+
+    try:
+        alerts = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return DependabotAlertsResult(status="error")
+    return DependabotAlertsResult(status="ok", alerts=tuple(alerts))
+
+
 def clone_repo(github_url: str, dest: Path) -> None:
     """github_url을 dest 경로로 clone한다. dest는 호출 전 존재하지 않아야 한다."""
 

@@ -9,6 +9,7 @@ import pytest
 from project_lens.errors import AuthError, RepoAccessError, ValidationError
 from project_lens.github.client import (
     ensure_authenticated,
+    fetch_dependabot_alerts,
     fetch_license,
     fetch_readme,
     parse_github_url,
@@ -124,3 +125,70 @@ def test_fetch_license_returns_none_when_missing(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     assert fetch_license("kokoa-lab", "no-license-repo") is None
+
+
+def test_fetch_dependabot_alerts_returns_open_alerts(monkeypatch):
+    payload = json.dumps(
+        [
+            {"severity": "high", "package": "requests"},
+            {"severity": "critical", "package": "lodash"},
+        ]
+    )
+
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(args, returncode=0, stdout=payload, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = fetch_dependabot_alerts("kokoa-lab", "dice-art")
+    assert result.status == "ok"
+    assert len(result.alerts) == 2
+    assert result.alerts[0]["severity"] == "high"
+
+
+def test_fetch_dependabot_alerts_uses_query_string_not_dash_f(monkeypatch):
+    """실제로 겪은 버그의 회귀 테스트: `gh api -f state=open ...`는 gh가 -f/-F가
+
+    있으면 메서드를 자동으로 POST로 바꿔버려서(GET만 지원하는 이 엔드포인트가) 항상
+    404가 났다. state=open은 반드시 URL 쿼리스트링으로 넘겨야 한다."""
+
+    def fake_run(args, **kwargs):
+        assert args == [
+            "gh",
+            "api",
+            "repos/kokoa-lab/dice-art/dependabot/alerts?state=open",
+            "--jq",
+            "[.[] | {severity: .security_advisory.severity, package: .dependency.package.name}]",
+        ]
+        assert "-f" not in args
+        return subprocess.CompletedProcess(args, returncode=0, stdout="[]", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    fetch_dependabot_alerts("kokoa-lab", "dice-art")
+
+
+def test_fetch_dependabot_alerts_detects_disabled_repo(monkeypatch):
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(
+            args,
+            returncode=1,
+            stdout="",
+            stderr='{"message":"Dependabot alerts are disabled for this repository."}',
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = fetch_dependabot_alerts("shinkeonkim", "base64-code")
+    assert result.status == "disabled"
+    assert result.alerts == ()
+
+
+def test_fetch_dependabot_alerts_returns_error_on_other_failure(monkeypatch):
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="rate limited")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = fetch_dependabot_alerts("shinkeonkim", "some-repo")
+    assert result.status == "error"
