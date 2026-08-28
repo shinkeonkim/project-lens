@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 import click
 
+from project_lens.adapters._ads_txt import inject_ads_txt
 from project_lens.adapters.cloudflare_workers import CloudflareWorkersAdapter
 from project_lens.adapters.github_pages import GitHubPagesAdapter
 from project_lens.adapters.oh_my_homelab import OhMyHomelabAdapter
@@ -1137,6 +1138,116 @@ def vuln_audit_cmd() -> None:
         click.echo(f"확인 실패 ({len(errored)}개): {', '.join(sorted(errored))}")
 
     click.echo(f"취약점 없음: {len(clean)}개")
+
+
+@main.command("ads-sync")
+@click.option("--publisher-id", required=True, help="AdSense 게시자 ID (ca-pub-XXXXXXXXXXXXXXXX 형태).")
+@click.option("--slug", default=None, help="특정 프로젝트만 처리합니다. 생략하면 ads_policy=allowed 전체.")
+@click.option(
+    "--yes",
+    is_flag=True,
+    help="실제로 ads.txt PR 생성 + GTM 태그 게시까지 진행합니다. 생략하면 계획만 보여줍니다(dry-run).",
+)
+def ads_sync_cmd(publisher_id: str, slug: str | None, yes: bool) -> None:
+    """ads_policy=allowed인 프로젝트에 ads.txt를 배치하고 GTM에 AdSense 연결 태그를 넣습니다.
+
+    ads_policy가 'allowed'로 명시된 프로젝트만 건드립니다 — 'excluded'/'unreviewed'는
+    항상 건너뜁니다(`lens project set-ads-policy`로 먼저 정책을 정하세요).
+    """
+
+    conn = connect()
+    try:
+        all_projects = list_projects(conn)
+        if slug:
+            proj = get_project(conn, slug)
+            if proj is None:
+                raise click.ClickException(f"등록되지 않은 프로젝트입니다: {slug}")
+            if proj.ads_policy != "allowed":
+                raise click.ClickException(
+                    f"{slug}의 ads_policy가 '{proj.ads_policy}'입니다 — 'allowed'인 "
+                    "프로젝트만 처리합니다."
+                )
+            targets = [proj]
+        else:
+            targets = [p for p in all_projects if p.ads_policy == "allowed"]
+
+        if not targets:
+            click.echo("ads_policy=allowed인 프로젝트가 없습니다.")
+            return
+
+        if not yes:
+            click.echo(f"[dry-run] 대상 {len(targets)}개: {', '.join(p.slug for p in targets)}")
+            click.echo("  --yes로 실행하면 각 레포에 ads.txt PR을 올리고 GTM에 태그를 게시합니다.")
+            return
+
+        ensure_authenticated()
+        credentials = load_credentials()
+        gtm_service = gtm.build_client(credentials)
+
+        for proj in targets:
+            click.echo(f"=== {proj.slug} ===")
+            tracking = get_tracking_config(conn, proj.id)
+            if tracking is None or not tracking.gtm_account_id or not tracking.gtm_container_id:
+                click.echo("  GTM 컨테이너가 없습니다 — 먼저 `lens track sync`가 필요합니다. 건너뜁니다.")
+                continue
+
+            try:
+                workspace = gtm.get_default_workspace(
+                    gtm_service, account_id=tracking.gtm_account_id, container_id=tracking.gtm_container_id
+                )
+                gtm.ensure_adsense_tag(
+                    gtm_service,
+                    account_id=tracking.gtm_account_id,
+                    container_id=tracking.gtm_container_id,
+                    workspace_id=workspace.id,
+                    publisher_id=publisher_id,
+                )
+                gtm.publish_workspace(
+                    gtm_service,
+                    account_id=tracking.gtm_account_id,
+                    container_id=tracking.gtm_container_id,
+                    workspace_id=workspace.id,
+                )
+                click.echo("  GTM AdSense 태그 게시 완료.")
+            except LensError as exc:
+                click.echo(f"  GTM 태그 게시 실패: {exc}")
+                continue
+
+            with cloned_workspace(proj.slug, f"ads-{uuid.uuid4().hex[:8]}", proj.github_url) as repo_path:
+                if proj.deployment_type == "cloudflare_workers":
+                    project_root = CloudflareWorkersAdapter().find_project_root(repo_path)
+                else:
+                    project_root = repo_path  # oh_my_homelab 등 — repo_path 자체가 모노레포 루트
+
+                if project_root is None:
+                    click.echo("  프로젝트 루트를 못 찾았습니다 — ads.txt는 건너뜁니다.")
+                    continue
+
+                change_set = inject_ads_txt(repo_path, project_root, publisher_id)
+                if change_set is None:
+                    click.echo("  ads.txt를 놓을 위치를 못 찾았습니다.")
+                    continue
+                if change_set.already_present:
+                    click.echo(f"  {change_set.summary}")
+                    continue
+
+                branch = f"project-lens/add-ads-txt-{uuid.uuid4().hex[:8]}"
+                create_branch(repo_path, branch)
+                commit_all(repo_path, "chore(ads): add ads.txt\n\nproject-lens automated commit.")
+                push_branch(repo_path, branch)
+                pr_url = create_pull_request(
+                    repo_path,
+                    title="chore(ads): add ads.txt",
+                    body=(
+                        "project-lens가 자동 생성한 PR입니다.\n\n"
+                        f"- {change_set.summary}\n"
+                        f"- AdSense 게시자: {publisher_id}\n"
+                    ),
+                    base=proj.default_branch,
+                )
+                click.echo(f"  ads.txt PR: {pr_url}")
+    finally:
+        conn.close()
 
 
 @main.command("adsense-status")

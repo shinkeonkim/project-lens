@@ -215,6 +215,82 @@ def test_ensure_ga4_config_tag_is_idempotent():
     assert len(service.state["triggers"][parent]) == 1
 
 
+def test_ensure_adsense_tag_creates_html_tag_with_publisher_id():
+    service = FakeGtmService()
+    container = gtm.find_or_create_container(service, account_id="222", name="dice-art")
+    workspace = gtm.get_default_workspace(service, account_id="222", container_id=container.container_id)
+
+    tag_id = gtm.ensure_adsense_tag(
+        service,
+        account_id="222",
+        container_id=container.container_id,
+        workspace_id=workspace.id,
+        publisher_id="ca-pub-1234567890123456",
+    )
+
+    parent = f"accounts/222/containers/{container.container_id}/workspaces/{workspace.id}"
+    created_tag = service.state["tags"][parent][0]
+    assert created_tag["tagId"] == tag_id
+    assert created_tag["type"] == "html"
+    html_param = next(p for p in created_tag["parameter"] if p["key"] == "html")
+    assert "ca-pub-1234567890123456" in html_param["value"]
+    assert "pagead2.googlesyndication.com" in html_param["value"]
+    assert created_tag["firingTriggerId"] == [service.state["triggers"][parent][0]["triggerId"]]
+
+
+def test_ensure_adsense_tag_is_idempotent():
+    service = FakeGtmService()
+    container = gtm.find_or_create_container(service, account_id="222", name="dice-art")
+    workspace = gtm.get_default_workspace(service, account_id="222", container_id=container.container_id)
+
+    first = gtm.ensure_adsense_tag(
+        service,
+        account_id="222",
+        container_id=container.container_id,
+        workspace_id=workspace.id,
+        publisher_id="ca-pub-1234567890123456",
+    )
+    second = gtm.ensure_adsense_tag(
+        service,
+        account_id="222",
+        container_id=container.container_id,
+        workspace_id=workspace.id,
+        publisher_id="ca-pub-1234567890123456",
+    )
+
+    parent = f"accounts/222/containers/{container.container_id}/workspaces/{workspace.id}"
+    assert first == second
+    assert len(service.state["tags"][parent]) == 1
+
+
+def test_ensure_adsense_tag_reuses_all_pages_trigger_from_ga4_setup():
+    """GA4 태그가 이미 만들어 둔 'All Pages' 트리거를 재사용해야 한다 — 트리거를
+
+    또 만들면 GTM에 중복 pageview 트리거가 쌓인다."""
+
+    service = FakeGtmService()
+    container = gtm.find_or_create_container(service, account_id="222", name="dice-art")
+    workspace = gtm.get_default_workspace(service, account_id="222", container_id=container.container_id)
+
+    gtm.ensure_ga4_config_tag(
+        service,
+        account_id="222",
+        container_id=container.container_id,
+        workspace_id=workspace.id,
+        measurement_id="G-ABC123",
+    )
+    gtm.ensure_adsense_tag(
+        service,
+        account_id="222",
+        container_id=container.container_id,
+        workspace_id=workspace.id,
+        publisher_id="ca-pub-1234567890123456",
+    )
+
+    parent = f"accounts/222/containers/{container.container_id}/workspaces/{workspace.id}"
+    assert len(service.state["triggers"][parent]) == 1
+
+
 def test_publish_workspace_returns_version_id():
     service = FakeGtmService()
     container = gtm.find_or_create_container(service, account_id="222", name="dice-art")

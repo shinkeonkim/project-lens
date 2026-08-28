@@ -21,6 +21,15 @@ _GA4_CONFIG_TAG_TYPE = "gaawc"
 
 _ALL_PAGES_TRIGGER_NAME = "All Pages (project-lens)"
 _GA4_CONFIG_TAG_NAME = "GA4 Configuration (project-lens)"
+_ADSENSE_TAG_NAME = "AdSense Connection (project-lens)"
+
+# AdSense가 공식 지원하는 사이트 인증 방법 중 하나가 "Google 태그 관리자로 코드 추가"다
+# (https://support.google.com/adsense/answer/9783797) — 그래서 앱 소스를 건드리지 않고
+# 이미 깔려 있는 GTM 컨테이너에 이 스크립트만 추가하면 인증/게재가 둘 다 된다.
+_ADSENSE_HTML_TEMPLATE = (
+    '<script async src="https://pagead2.googlesyndication.com/pagead/js/'
+    'adsbygoogle.js?client={publisher_id}" crossorigin="anonymous"></script>'
+)
 
 
 @dataclass(frozen=True)
@@ -126,6 +135,48 @@ def ensure_ga4_config_tag(
         return created["tagId"]
     except HttpError as exc:
         raise GoogleAPIError(f"GA4 Configuration 태그 생성/조회 실패: {short(exc)}") from exc
+
+
+def ensure_adsense_tag(
+    service: Resource,
+    *,
+    account_id: str,
+    container_id: str,
+    workspace_id: str,
+    publisher_id: str,
+) -> str:
+    """AdSense 연결 스크립트를 Custom HTML 태그로 넣는다 (ads_policy='allowed'인
+
+    프로젝트에만 호출해야 한다 — 호출자가 그 확인을 책임진다). publisher_id는
+    "ca-pub-XXXXXXXXXXXXXXXX" 형태 그대로 넘긴다.
+    """
+
+    parent = f"accounts/{account_id}/containers/{container_id}/workspaces/{workspace_id}"
+    try:
+        trigger_id = _find_or_create_all_pages_trigger(service, parent)
+
+        tags_api = service.accounts().containers().workspaces().tags()
+        response = tags_api.list(parent=parent).execute()
+        for tag in response.get("tag", []):
+            if tag["name"] == _ADSENSE_TAG_NAME:
+                return tag["tagId"]
+
+        html = _ADSENSE_HTML_TEMPLATE.format(publisher_id=publisher_id)
+        created = tags_api.create(
+            parent=parent,
+            body={
+                "name": _ADSENSE_TAG_NAME,
+                "type": "html",
+                "parameter": [
+                    {"type": "template", "key": "html", "value": html},
+                    {"type": "boolean", "key": "supportDocumentWrite", "value": "false"},
+                ],
+                "firingTriggerId": [trigger_id],
+            },
+        ).execute()
+        return created["tagId"]
+    except HttpError as exc:
+        raise GoogleAPIError(f"AdSense 연결 태그 생성/조회 실패: {short(exc)}") from exc
 
 
 def _find_or_create_all_pages_trigger(service: Resource, parent: str) -> str:

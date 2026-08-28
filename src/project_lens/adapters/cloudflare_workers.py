@@ -20,15 +20,18 @@ class CloudflareWorkersAdapter:
     name = "cloudflare_workers"
 
     def detect(self, repo_path: Path) -> bool:
-        return self._find_wrangler_project_root(repo_path) is not None
+        return self.find_project_root(repo_path) is not None
 
     def inject_tracking(self, repo_path: Path, gtm_id: str) -> ChangeSet | None:
-        project_root = self._find_wrangler_project_root(repo_path)
+        project_root = self.find_project_root(repo_path)
         if project_root is None:
             return None
         return inject_static_site_tracking(repo_path, project_root, gtm_id)
 
-    def _find_wrangler_project_root(self, repo_path: Path) -> Path | None:
+    def find_project_root(self, repo_path: Path) -> Path | None:
+        """wrangler 프로젝트 루트를 찾는다 — ads.txt 배치처럼 GTM 삽입 말고 다른
+
+        작업도 같은 루트가 필요해서 공개 메서드로 둔다."""
         candidates = [repo_path] + sorted(
             p for p in repo_path.iterdir() if p.is_dir() and not p.name.startswith(".")
         )
