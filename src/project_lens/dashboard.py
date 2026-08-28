@@ -135,7 +135,8 @@ def _render_ga4_summary_table(ga4_rows: list[DashboardRow]) -> str:
 
     sorted_rows = sorted(ga4_rows, key=lambda r: int(r.ga4_active_users_7d), reverse=True)
     body_rows = "\n".join(
-        f'<tr><td>{html.escape(r.slug)}</td>'
+        f'<tr><td><a href="{html.escape(r.github_url)}" target="_blank" rel="noopener">'
+        f'{html.escape(r.slug)}</a></td>'
         f'<td class="num">{html.escape(r.ga4_active_users_7d)}</td>'
         f'<td class="num">{html.escape(r.ga4_sessions_7d or "0")}</td>'
         f'<td>{html.escape(r.ga4_measurement_id or "-")}</td></tr>'
@@ -194,7 +195,7 @@ def _render_card(r: DashboardRow) -> str:
 
     return f"""<article class="card">
   <div class="card-head">
-    <h2>{html.escape(r.slug)}</h2>
+    <h2><a href="{html.escape(r.github_url)}" target="_blank" rel="noopener">{html.escape(r.slug)}</a></h2>
     <span class="badge {css_class}">{html.escape(label)}</span>
   </div>
   <div class="site">{site_link}</div>
@@ -308,6 +309,8 @@ header h1 { margin-bottom: 0.25rem; font-size: 1.5rem; }
 }
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
 .card-head h2 { font-size: 0.95rem; margin: 0; word-break: break-all; }
+.card-head h2 a { color: inherit; text-decoration: none; }
+.card-head h2 a:hover { text-decoration: underline; }
 .site { margin: 0.4rem 0; font-size: 0.85rem; overflow-wrap: anywhere; }
 .deployment-type { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.5rem; }
 .ga4 { font-size: 0.85rem; margin: 0.4rem 0; }

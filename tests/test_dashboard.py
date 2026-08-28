@@ -92,6 +92,19 @@ def test_render_ga4_summary_table_sorted_by_active_users_desc():
     assert "<span class=\"stat-value\">51</span>" in html  # 합계 방문자(7일) = 1 + 50
 
 
+def test_render_card_title_links_to_github():
+    html = render_dashboard_html([_row()], generated_at="2026-08-28T00:00:00+00:00")
+    assert '<h2><a href="https://github.com/kokoa-lab/dice-art"' in html
+
+
+def test_render_ga4_summary_table_links_project_name_to_github():
+    html = render_dashboard_html([_row()], generated_at="2026-08-28T00:00:00+00:00")
+    assert (
+        '<td><a href="https://github.com/kokoa-lab/dice-art" target="_blank" rel="noopener">'
+        "kokoa-lab-dice-art</a></td>" in html
+    )
+
+
 def test_render_ga4_summary_table_omitted_when_no_ga4_data():
     row = _row(ga4_active_users_7d=None, ga4_sessions_7d=None)
     html = render_dashboard_html([row], generated_at="2026-08-28T00:00:00+00:00")
