@@ -126,6 +126,26 @@ def fetch_readme(org: str, repo: str) -> str | None:
         return None
 
 
+def fetch_license(org: str, repo: str) -> str | None:
+    """레포에 LICENSE 파일이 있으면 GitHub이 인식한 라이선스 이름을 반환한다.
+
+    GitHub이 SPDX로 확정 못 하면(예: 리눅스 커널) name이 "Other"로 온다 — 그래도
+    "라이선스 파일 자체는 있다"는 뜻이라 None과는 구분해서 그대로 보여준다.
+    없으면(404) None.
+    """
+
+    result = subprocess.run(
+        ["gh", "api", f"repos/{org}/{repo}/license", "--jq", ".license.name"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    name = result.stdout.strip()
+    return name or None
+
+
 def clone_repo(github_url: str, dest: Path) -> None:
     """github_url을 dest 경로로 clone한다. dest는 호출 전 존재하지 않아야 한다."""
 

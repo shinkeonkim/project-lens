@@ -9,6 +9,7 @@ import pytest
 from project_lens.errors import AuthError, RepoAccessError, ValidationError
 from project_lens.github.client import (
     ensure_authenticated,
+    fetch_license,
     fetch_readme,
     parse_github_url,
     view_repo,
@@ -104,3 +105,22 @@ def test_fetch_readme_returns_none_when_missing(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     assert fetch_readme("shinkeonkim", "no-readme-repo") is None
+
+
+def test_fetch_license_returns_name_when_present(monkeypatch):
+    def fake_run(args, **kwargs):
+        assert args == ["gh", "api", "repos/shinkeonkim/project-lens/license", "--jq", ".license.name"]
+        return subprocess.CompletedProcess(args, returncode=0, stdout="MIT License\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert fetch_license("shinkeonkim", "project-lens") == "MIT License"
+
+
+def test_fetch_license_returns_none_when_missing(monkeypatch):
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="404")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert fetch_license("kokoa-lab", "no-license-repo") is None

@@ -17,7 +17,7 @@ from project_lens.dashboard import DEFAULT_SERVE_PORT, render_dashboard_html
 from project_lens.dashboard_data import collect_dashboard_rows
 from project_lens.dashboard_server import run_dashboard_server
 from project_lens.errors import AdapterDetectionError, LensError, ValidationError
-from project_lens.github.client import ensure_authenticated, fetch_readme, view_repo
+from project_lens.github.client import ensure_authenticated, fetch_license, fetch_readme, view_repo
 from project_lens.readme_audit import ReadmeStatus, classify_readme, verdict_label
 from project_lens.github.repo_ops import (
     commit_all,
@@ -1011,6 +1011,42 @@ def readme_audit_cmd() -> None:
             "\n특정 프로젝트의 README 초안이 필요하면 Claude Code에게 "
             "\"<slug> README 제안해줘\"라고 요청하세요."
         )
+
+
+@main.command("license-audit")
+def license_audit_cmd() -> None:
+    """등록된 모든 프로젝트에 LICENSE 파일이 있는지 점검합니다."""
+
+    conn = connect()
+    try:
+        projects = list_projects(conn)
+    finally:
+        conn.close()
+
+    if not projects:
+        click.echo("등록된 프로젝트가 없습니다.")
+        return
+
+    results: list[tuple[str, str | None, str]] = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(fetch_license, proj.github_org, proj.github_repo): proj for proj in projects
+        }
+        for future in futures:
+            proj = futures[future]
+            license_name = future.result()
+            results.append((proj.slug, license_name, proj.github_url))
+
+    results.sort(key=lambda r: (r[1] is not None, r[0]))
+
+    missing = [r for r in results if r[1] is None]
+    click.echo(f"전체 {len(results)}개 중 {len(missing)}개에 LICENSE 파일이 없습니다.\n")
+
+    headers = ("slug", "라이선스", "github_url")
+    rows = [(slug, name or "없음", url) for slug, name, url in results]
+    widths = [max(len(str(row[i])) for row in ([headers] + rows)) for i in range(len(headers))]
+    for row in [headers, tuple("-" * w for w in widths)] + rows:
+        click.echo("  ".join(str(cell).ljust(w) for cell, w in zip(row, widths)))
 
 
 def _entrypoint() -> None:
