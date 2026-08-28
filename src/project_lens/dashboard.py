@@ -35,7 +35,12 @@ class DashboardRow:
     ga4_sessions_7d: str | None
 
 
-def render_dashboard_html(rows: list[DashboardRow], generated_at: str) -> str:
+DEFAULT_SERVE_PORT = 8765
+
+
+def render_dashboard_html(
+    rows: list[DashboardRow], generated_at: str, *, serve_port: int = DEFAULT_SERVE_PORT
+) -> str:
     total = len(rows)
     active = sum(1 for r in rows if r.status == "active")
     needs_attention = sum(1 for r in rows if r.status == "needs_attention")
@@ -69,9 +74,33 @@ def render_dashboard_html(rows: list[DashboardRow], generated_at: str) -> str:
 </head>
 <body>
 <header>
-  <h1>project-lens 대시보드</h1>
+  <div class="header-row">
+    <h1>project-lens 대시보드</h1>
+    <div class="refresh">
+      <button id="refresh-btn" onclick="refreshDashboard()">↻ 새로고침</button>
+      <span id="refresh-status" class="muted-text"></span>
+    </div>
+  </div>
   <p class="generated">생성: {html.escape(generated_at)}</p>
 </header>
+
+<script>
+const REFRESH_URL = "http://127.0.0.1:{serve_port}/refresh";
+async function refreshDashboard() {{
+  const btn = document.getElementById("refresh-btn");
+  const status = document.getElementById("refresh-status");
+  btn.disabled = true;
+  status.textContent = "새로고침 중... (GA4/PR 상태를 다시 불러옵니다)";
+  try {{
+    const res = await fetch(REFRESH_URL, {{ method: "POST" }});
+    if (!res.ok) throw new Error(await res.text());
+    location.reload();
+  }} catch (e) {{
+    status.textContent = "실패 — `lens dashboard --serve`로 켜져 있는지 확인하세요.";
+    btn.disabled = false;
+  }}
+}}
+</script>
 
 <section class="stats">
   <div class="stat"><span class="stat-value">{total}</span><span class="stat-label">전체 프로젝트</span></div>
@@ -221,8 +250,21 @@ body {
   max-width: 1100px;
   margin-inline: auto;
 }
+.header-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 header h1 { margin-bottom: 0.25rem; font-size: 1.5rem; }
 .generated { color: var(--muted); font-size: 0.85rem; margin-top: 0; }
+.refresh { display: flex; align-items: center; gap: 0.6rem; font-size: 0.8rem; }
+#refresh-btn {
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--fg);
+  border-radius: 8px;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+#refresh-btn:hover:not(:disabled) { border-color: var(--link); color: var(--link); }
+#refresh-btn:disabled { opacity: 0.6; cursor: default; }
 .stats {
   display: flex;
   flex-wrap: wrap;

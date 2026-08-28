@@ -12,9 +12,11 @@ from project_lens.adapters.github_pages import GitHubPagesAdapter
 from project_lens.adapters.oh_my_homelab import OhMyHomelabAdapter
 from project_lens.adapters.vercel import VercelAdapter
 from project_lens.config import dashboard_path, reports_dir
-from project_lens.dashboard import DashboardRow, render_dashboard_html
+from project_lens.dashboard import DEFAULT_SERVE_PORT, render_dashboard_html
+from project_lens.dashboard_data import collect_dashboard_rows
+from project_lens.dashboard_server import run_dashboard_server
 from project_lens.errors import AdapterDetectionError, LensError, ValidationError
-from project_lens.github.client import ensure_authenticated, pr_state, view_repo
+from project_lens.github.client import ensure_authenticated, view_repo
 from project_lens.github.repo_ops import (
     commit_all,
     create_branch,
@@ -919,71 +921,41 @@ def _handle_new_change(conn, proj, gtm_id: str, change_set, repo_path, run_id, y
     is_flag=True,
     help="Google API를 호출하지 않고 로컬 레지스트리 정보만으로 생성합니다 (빠르지만 GA4 수치는 비어 있음).",
 )
-def dashboard(no_open: bool, offline: bool) -> None:
+@click.option(
+    "--serve",
+    is_flag=True,
+    help=(
+        "127.0.0.1에서 로컬 서버로 띄웁니다 — 페이지의 '새로고침' 버튼으로 터미널에 "
+        "돌아오지 않고도 최신 GA4/PR 상태를 다시 불러올 수 있습니다. Ctrl+C로 종료."
+    ),
+)
+@click.option("--port", default=DEFAULT_SERVE_PORT, show_default=True, help="--serve 사용 시 바인딩할 포트.")
+def dashboard(no_open: bool, offline: bool, serve: bool, port: int) -> None:
     """등록된 모든 프로젝트 상태를 한눈에 보는 로컬 HTML 대시보드를 만듭니다."""
 
-    conn = connect()
-    try:
-        projects = list_projects(conn)
-        rows: list[DashboardRow] = []
-        credentials = None
-
-        for proj in projects:
-            tracking = get_tracking_config(conn, proj.id)
-            latest_run = get_latest_run(conn, proj.id)
-            latest_pr_run = get_latest_pr_run(conn, proj.id)
-
-            pr_state_value = None
-            if latest_pr_run and latest_pr_run.pr_url:
-                pr_state_value = pr_state(latest_pr_run.pr_url)
-
-            gtm_console_url = None
-            if tracking and tracking.gtm_account_id and tracking.gtm_container_id:
-                gtm_console_url = (
-                    "https://tagmanager.google.com/#/container/accounts/"
-                    f"{tracking.gtm_account_id}/containers/{tracking.gtm_container_id}/workspaces"
-                )
-
-            ga4_active_users = None
-            ga4_sessions = None
-            if not offline and tracking and tracking.ga4_property_id:
-                try:
-                    if credentials is None:
-                        credentials = load_credentials()
-                    data_client = ga4_reporting.build_client(credentials)
-                    summary = ga4_reporting.run_summary_report(
-                        data_client, property_id=tracking.ga4_property_id, start_date="7daysAgo"
-                    )
-                    ga4_active_users = summary.active_users
-                    ga4_sessions = summary.sessions
-                except Exception:
-                    pass  # 대시보드 자체는 계속 만든다 — 그 프로젝트의 GA4 수치만 빈 채로 둔다
-
-            rows.append(
-                DashboardRow(
-                    slug=proj.slug,
-                    github_url=proj.github_url,
-                    site_url=proj.site_url,
-                    status=proj.status,
-                    deployment_type=proj.deployment_type,
-                    pr_url=latest_pr_run.pr_url if latest_pr_run else None,
-                    pr_state=pr_state_value,
-                    run_status=latest_run.status if latest_run else None,
-                    run_summary=latest_run.summary if latest_run else None,
-                    ga4_measurement_id=tracking.ga4_measurement_id if tracking else None,
-                    gtm_console_url=gtm_console_url,
-                    ga4_active_users_7d=ga4_active_users,
-                    ga4_sessions_7d=ga4_sessions,
-                )
-            )
-    finally:
-        conn.close()
-
-    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    html_content = render_dashboard_html(rows, generated_at)
     path = dashboard_path()
-    path.write_text(html_content, encoding="utf-8")
+
+    def rebuild() -> str:
+        conn = connect()
+        try:
+            rows = collect_dashboard_rows(conn, offline=offline)
+        finally:
+            conn.close()
+        generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        html_content = render_dashboard_html(rows, generated_at, serve_port=port)
+        path.write_text(html_content, encoding="utf-8")
+        return html_content
+
+    rebuild()
     click.echo(f"생성됨: {path}")
+
+    if serve:
+        url = f"http://127.0.0.1:{port}/"
+        click.echo(f"서빙 중: {url} (Ctrl+C로 종료)")
+        if not no_open:
+            webbrowser.open(url)
+        run_dashboard_server(dashboard_path=path, port=port, rebuild=rebuild)
+        return
 
     if not no_open:
         webbrowser.open(f"file://{path}")
