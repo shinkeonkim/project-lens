@@ -76,14 +76,43 @@ _STARLIGHT_INLINE_SCRIPT = (
     "}})(window,document,'script','dataLayer','{gtm_id}');"
 )
 
+# Next.js App Router 관례 — 모노레포(apps/web)와 단일 레포 둘 다 커버한다. codekr처럼
+# 특정 레포 구조에 맞춘 앵커 패치가 있는 경우 그게 우선이고, 이건 그런 전용 패치가 없는
+# App Router 레포를 위한 범용 폴백이다 (docs/ADAPTERS.md 원칙과 동일하게, JSX <head>/
+# <body> 태그를 못 찾으면 None을 반환해 이슈 생성 폴백을 쓰게 한다).
+NEXTJS_LAYOUT_CANDIDATES = (
+    "src/app/layout.tsx",
+    "app/layout.tsx",
+    "apps/web/src/app/layout.tsx",
+    "apps/web/app/layout.tsx",
+)
+
+# JSX 안에서는 `{{`/`}}`가 표현식으로 해석되므로 정적 HTML용 <script> 텍스트를 그대로
+# 못 쓴다 — dangerouslySetInnerHTML 문자열 안에 GTM 부트스트랩을 넣고, noscript의
+# 인라인 스타일도 JSX 객체 문법(style={{...}})으로 바꾼다.
+_NEXTJS_HEAD_SNIPPET = (
+    "<script dangerouslySetInnerHTML={{{{ __html: `(function(w,d,s,l,i)"
+    "{{w[l]=w[l]||[];w[l].push({{'gtm.start':new Date().getTime(),event:'gtm.js'}});"
+    "var f=d.getElementsByTagName(s)[0],j=d.createElement(s),"
+    "dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src="
+    "'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);"
+    "}}}})(window,document,'script','dataLayer','{gtm_id}');` }}}} />"
+)
+
+_NEXTJS_BODY_SNIPPET = (
+    '<noscript><iframe src="https://www.googletagmanager.com/ns.html?id={gtm_id}" '
+    'height="0" width="0" style={{{{ display: "none", visibility: "hidden" }}}} '
+    'title="Google Tag Manager" /></noscript>'
+)
+
 
 def inject_static_site_tracking(
     repo_path: Path, project_root: Path, gtm_id: str
 ) -> ChangeSet | None:
     """project_root에서 알려진 프레임워크 관례를 순서대로 시도한다.
 
-    Docusaurus → Astro Starlight → 정적 HTML 순. 어느 것도 못 찾으면 None —
-    호출자가 이슈 생성 폴백을 쓰도록 한다.
+    Docusaurus → Astro Starlight → Next.js App Router → 정적 HTML 순. 어느 것도
+    못 찾으면 None — 호출자가 이슈 생성 폴백을 쓰도록 한다.
     """
 
     docusaurus_config = _find_docusaurus_config(project_root)
@@ -94,7 +123,69 @@ def inject_static_site_tracking(
     if starlight_config is not None:
         return _inject_starlight(repo_path, starlight_config, gtm_id)
 
+    nextjs_layout = _find_nextjs_layout(project_root)
+    if nextjs_layout is not None:
+        return inject_nextjs_app_router_tracking(repo_path, nextjs_layout, gtm_id)
+
     return _inject_html(repo_path, project_root, gtm_id)
+
+
+def inject_nextjs_app_router_tracking(
+    repo_path: Path, layout_path: Path, gtm_id: str
+) -> ChangeSet | None:
+    """Next.js App Router의 루트 layout.tsx에 JSX-safe GTM 스니펫을 삽입한다.
+
+    codekr처럼 전용 앵커 패치(정확한 import/className 문자열까지 맞춘)가 있는
+    레포는 그쪽이 우선이다 — 이건 그런 전용 패치가 없는 App Router 레포를 위한
+    범용 폴백. 실제로는 SvelteKit(base64-code/qr-gen)과 같은 문제였다: layout.tsx
+    안에 `<head>`/`<body>` JSX 태그가 있으면 정적 HTML과 같은 자리에 꽂되, JSX가
+    `{{`/`}}`를 표현식으로 해석하는 문제만 dangerouslySetInnerHTML로 피해간다.
+    """
+
+    original = layout_path.read_text(encoding="utf-8")
+    rel_path = str(layout_path.relative_to(repo_path))
+
+    if gtm_id in original:
+        return ChangeSet(
+            changed_files=(),
+            summary=f"{rel_path}에 이미 {gtm_id}가 삽입되어 있습니다.",
+            already_present=True,
+        )
+
+    body_match = _BODY_RE.search(original)
+    head_match = _HEAD_RE.search(original)
+    if not body_match or not head_match:
+        return None
+
+    updated = (
+        original[: body_match.end()]
+        + "\n        "
+        + _NEXTJS_BODY_SNIPPET.format(gtm_id=gtm_id)
+        + original[body_match.end() :]
+    )
+    head_match = _HEAD_RE.search(updated)
+    assert head_match is not None
+    updated = (
+        updated[: head_match.end()]
+        + "\n        "
+        + _NEXTJS_HEAD_SNIPPET.format(gtm_id=gtm_id)
+        + updated[head_match.end() :]
+    )
+
+    layout_path.write_text(updated, encoding="utf-8")
+
+    return ChangeSet(
+        changed_files=(rel_path,),
+        summary=f"{rel_path}(Next.js App Router)에 GTM({gtm_id}) 스니펫을 삽입했습니다.",
+    )
+
+
+def _find_nextjs_layout(project_root: Path) -> Path | None:
+    for candidate in NEXTJS_LAYOUT_CANDIDATES:
+        path = project_root / candidate
+        if path.exists():
+            return path
+    return None
 
 
 def _inject_html(repo_path: Path, project_root: Path, gtm_id: str) -> ChangeSet | None:

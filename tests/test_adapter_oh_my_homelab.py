@@ -155,6 +155,67 @@ def test_inject_tracking_returns_none_when_anchor_does_not_match(tmp_path):
     assert OhMyHomelabAdapter().inject_tracking(tmp_path, "GTM-ABC1234") is None
 
 
+AWS_STUDY_SITE_LAYOUT_TSX = """import type { Metadata } from "next"
+import type { JSX, ReactNode } from "react"
+
+import { SiteHeader } from "@/components/site-header"
+
+import "./globals.css"
+
+export const metadata: Metadata = {
+  title: { default: "AWS Study", template: "%s | AWS Study" },
+}
+
+export default async function RootLayout({
+  children,
+}: {
+  readonly children: ReactNode
+}): Promise<JSX.Element> {
+  return (
+    <html lang="ko" suppressHydrationWarning>
+      <head>
+        <meta charset="utf-8" />
+      </head>
+      <body>
+        <SiteHeader />
+        <main id="main-content">{children}</main>
+      </body>
+    </html>
+  )
+}
+"""
+
+
+def test_inject_tracking_falls_back_to_generic_nextjs_when_not_codekr_shaped(tmp_path):
+    """실제로 겪은 사례의 회귀 테스트: kokoa-study-room/aws-study-site는
+
+    App Router지만 apps/web/Dockerfile·CI 앵커가 codekr과 달라 정밀 패치가 못 맞고,
+    예전에는 그대로 None(이슈 생성)을 반환했다 — 이제는 <head>/<body> JSX만 있으면
+    범용 폴백으로 직접 삽입한다."""
+
+    (tmp_path / "deploy" / "charts" / "aws-study-site").mkdir(parents=True)
+    (tmp_path / "apps" / "web" / "src" / "app").mkdir(parents=True)
+    (tmp_path / "apps" / "web" / "src" / "app" / "layout.tsx").write_text(
+        AWS_STUDY_SITE_LAYOUT_TSX, encoding="utf-8"
+    )
+    # codekr 전용 파일(Dockerfile/.env.example/CI workflow)은 의도적으로 만들지 않는다
+    # — 이게 없다는 것 자체가 "codekr 구조가 아니다"라는 신호다.
+
+    change_set = OhMyHomelabAdapter().inject_tracking(tmp_path, "GTM-ABC1234")
+
+    assert change_set is not None
+    assert change_set.already_present is False
+    assert change_set.changed_files == ("apps/web/src/app/layout.tsx",)
+
+    layout = (tmp_path / "apps/web/src/app/layout.tsx").read_text()
+    assert "GTM-ABC1234" in layout
+    assert "dangerouslySetInnerHTML" in layout
+    assert "googletagmanager.com/gtm.js" in layout
+    assert "googletagmanager.com/ns.html" in layout
+    # codekr 전용 컴포넌트 파일은 안 만든다 — 값을 직접 하드코딩하는 경로라서.
+    assert not (tmp_path / "apps/web/src/shared/analytics").exists()
+
+
 def test_configure_remote_success(monkeypatch, tmp_path):
     calls = []
 

@@ -160,6 +160,58 @@ def test_inject_tracking_falls_back_to_any_html_with_head_and_body(tmp_path):
     assert change_set.changed_files == ("custom_entry/root.html",)
 
 
+NEXTJS_APP_ROUTER_LAYOUT = """import type { ReactNode } from "react";
+
+export default function RootLayout({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+      <head>
+        <meta charSet="utf-8" />
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+"""
+
+
+def test_inject_tracking_finds_nextjs_app_router_layout(tmp_path):
+    """Next.js App Router는 Cloudflare Workers/Vercel/GitHub Pages 어디든 배포될 수
+
+    있으니, 이 공용 전략이 특정 어댑터가 아니라 inject_static_site_tracking()
+    디스패치 자체에 걸려 있다는 것도 함께 확인한다."""
+
+    _mark_wrangler_project(tmp_path)
+    (tmp_path / "src" / "app").mkdir(parents=True)
+    (tmp_path / "src" / "app" / "layout.tsx").write_text(NEXTJS_APP_ROUTER_LAYOUT)
+
+    change_set = CloudflareWorkersAdapter().inject_tracking(tmp_path, "GTM-ABC1234")
+
+    assert change_set is not None
+    assert change_set.changed_files == ("src/app/layout.tsx",)
+
+    layout = (tmp_path / "src" / "app" / "layout.tsx").read_text()
+    assert "GTM-ABC1234" in layout
+    assert "dangerouslySetInnerHTML" in layout
+    assert layout.index("<head>") < layout.index("dangerouslySetInnerHTML") < layout.index(
+        "<body>"
+    )
+
+
+def test_inject_tracking_nextjs_app_router_is_idempotent(tmp_path):
+    _mark_wrangler_project(tmp_path)
+    (tmp_path / "src" / "app").mkdir(parents=True)
+    (tmp_path / "src" / "app" / "layout.tsx").write_text(NEXTJS_APP_ROUTER_LAYOUT)
+    adapter = CloudflareWorkersAdapter()
+
+    first = adapter.inject_tracking(tmp_path, "GTM-ABC1234")
+    second = adapter.inject_tracking(tmp_path, "GTM-ABC1234")
+
+    assert first.already_present is False
+    assert second.already_present is True
+    assert second.changed_files == ()
+
+
 def test_detect_true_for_nested_wrangler_project(tmp_path):
     site = tmp_path / "site"
     site.mkdir()
