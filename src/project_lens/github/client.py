@@ -6,6 +6,8 @@ project-lens는 자체 GitHub 토큰을 발급/저장하지 않고, 로컬에 �
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import re
 import subprocess
@@ -100,6 +102,27 @@ def pr_state(pr_url: str) -> str | None:
     try:
         return json.loads(result.stdout)["state"]
     except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def fetch_readme(org: str, repo: str) -> str | None:
+    """기본 브랜치의 README(대소문자/확장자 무관, GitHub이 자동 탐지)를 가져온다.
+
+    없으면(404) None — 실패를 예외로 다루지 않는다, "README가 없다"는 audit에서
+    정상적인 결과값이지 에러가 아니다.
+    """
+
+    result = subprocess.run(
+        ["gh", "api", f"repos/{org}/{repo}/readme", "--jq", ".content"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return base64.b64decode(result.stdout.strip()).decode("utf-8", errors="replace")
+    except (ValueError, binascii.Error):
         return None
 
 

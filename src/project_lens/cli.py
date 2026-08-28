@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import click
@@ -16,7 +17,8 @@ from project_lens.dashboard import DEFAULT_SERVE_PORT, render_dashboard_html
 from project_lens.dashboard_data import collect_dashboard_rows
 from project_lens.dashboard_server import run_dashboard_server
 from project_lens.errors import AdapterDetectionError, LensError, ValidationError
-from project_lens.github.client import ensure_authenticated, view_repo
+from project_lens.github.client import ensure_authenticated, fetch_readme, view_repo
+from project_lens.readme_audit import ReadmeStatus, classify_readme, verdict_label
 from project_lens.github.repo_ops import (
     commit_all,
     create_branch,
@@ -959,6 +961,56 @@ def dashboard(no_open: bool, offline: bool, serve: bool, port: int) -> None:
 
     if not no_open:
         webbrowser.open(f"file://{path}")
+
+
+@main.command("readme-audit")
+def readme_audit_cmd() -> None:
+    """등록된 모든 프로젝트의 README.md 상태(없음/스캐폴드 기본값/부족/양호)를 점검합니다."""
+
+    conn = connect()
+    try:
+        projects = list_projects(conn)
+    finally:
+        conn.close()
+
+    if not projects:
+        click.echo("등록된 프로젝트가 없습니다.")
+        return
+
+    statuses: list[ReadmeStatus] = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(fetch_readme, proj.github_org, proj.github_repo): proj for proj in projects
+        }
+        for future in futures:
+            proj = futures[future]
+            content = future.result()
+            verdict = classify_readme(content)
+            statuses.append(
+                ReadmeStatus(
+                    slug=proj.slug,
+                    github_url=proj.github_url,
+                    verdict=verdict,
+                    length=len(content.strip()) if content else 0,
+                )
+            )
+
+    statuses.sort(key=lambda s: (s.verdict != "missing", s.verdict != "template", s.verdict != "thin", s.slug))
+
+    needs_attention = [s for s in statuses if s.verdict != "ok"]
+    click.echo(f"전체 {len(statuses)}개 중 {len(needs_attention)}개가 확인이 필요합니다.\n")
+
+    headers = ("slug", "상태", "글자 수", "github_url")
+    rows = [(s.slug, verdict_label(s.verdict), str(s.length), s.github_url) for s in statuses]
+    widths = [max(len(str(row[i])) for row in ([headers] + rows)) for i in range(len(headers))]
+    for row in [headers, tuple("-" * w for w in widths)] + rows:
+        click.echo("  ".join(str(cell).ljust(w) for cell, w in zip(row, widths)))
+
+    if needs_attention:
+        click.echo(
+            "\n특정 프로젝트의 README 초안이 필요하면 Claude Code에게 "
+            "\"<slug> README 제안해줘\"라고 요청하세요."
+        )
 
 
 def _entrypoint() -> None:
