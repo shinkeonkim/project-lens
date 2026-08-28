@@ -33,7 +33,7 @@ from project_lens.github.repo_ops import (
     create_pull_request,
     push_branch,
 )
-from project_lens.google import ads, ga4, ga4_reporting, gtm
+from project_lens.google import adsense, ads, ga4, ga4_reporting, gtm
 from project_lens.google.auth import (
     has_ads_developer_token,
     has_stored_credentials,
@@ -1114,6 +1114,38 @@ def vuln_audit_cmd() -> None:
         click.echo(f"확인 실패 ({len(errored)}개): {', '.join(sorted(errored))}")
 
     click.echo(f"취약점 없음: {len(clean)}개")
+
+
+@main.command("adsense-status")
+def adsense_status_cmd() -> None:
+    """연결된 Google AdSense 계정과 등록된 사이트의 승인 상태를 보여줍니다.
+
+    이 명령으로 사이트를 새로 추가하거나 광고 게재 승인을 받을 수는 없습니다 —
+    그건 Google이 사람이/정책 기준으로 심사하는 과정이라 AdSense 콘솔
+    (https://www.google.com/adsense/)에서 직접 해야 합니다. 여기서는 이미 등록된
+    사이트들의 현재 상태만 조회합니다.
+    """
+
+    credentials = load_credentials()
+    service = adsense.build_client(credentials)
+    accounts = adsense.list_accounts(service)
+
+    if not accounts:
+        click.echo(
+            "연결된 AdSense 계정이 없습니다. https://www.google.com/adsense/ 에서 "
+            "계정을 먼저 만드세요 (이 단계는 자동화할 수 없습니다)."
+        )
+        return
+
+    for account in accounts:
+        click.echo(f"계정: {account.display_name} ({account.name}) — {account.state}")
+        sites = adsense.list_sites(service, account_name=account.name)
+        if not sites:
+            click.echo("  등록된 사이트 없음. AdSense 콘솔에서 사이트를 추가하고 심사를 요청하세요.")
+            continue
+        for site in sites:
+            auto_ads = "자동 광고 켜짐" if site.auto_ads_enabled else "자동 광고 꺼짐"
+            click.echo(f"  {site.domain}: {site.state} ({auto_ads})")
 
 
 def _entrypoint() -> None:

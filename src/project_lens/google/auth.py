@@ -37,6 +37,9 @@ SCOPES = [
     # "insufficient authentication scopes"로 실패한다 — 기존에 인증했다면 다시
     # `lens creds init --provider google`을 실행해야 한다.
     "https://www.googleapis.com/auth/adwords",
+    # AdSense 계정/사이트 연결 상태 조회 전용 — 이 API로 사이트 등록/광고 게재 승인
+    # 자체는 할 수 없다(Google이 사람이 심사하는 과정). 그래서 조회 스코프만 요청한다.
+    "https://www.googleapis.com/auth/adsense.readonly",
 ]
 
 
