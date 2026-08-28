@@ -35,6 +35,10 @@ class DeployError(LensError):
     """배포(PR 생성/직접 배포) 단계 실패."""
 
 
+class CloudflareAPIError(LensError):
+    """Cloudflare API 호출 실패 (DNS/Tunnel 설정 등)."""
+
+
 def short(exc: Exception) -> str:
     """Google API 예외의 첫 줄만 취한다.
 

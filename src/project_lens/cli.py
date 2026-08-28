@@ -13,6 +13,10 @@ from project_lens.adapters.cloudflare_workers import CloudflareWorkersAdapter
 from project_lens.adapters.github_pages import GitHubPagesAdapter
 from project_lens.adapters.oh_my_homelab import OhMyHomelabAdapter
 from project_lens.adapters.vercel import VercelAdapter
+from project_lens.cloudflare import client as cf_client
+from project_lens.cloudflare.auth import has_api_token as has_cloudflare_token
+from project_lens.cloudflare.auth import load_api_token as load_cloudflare_token
+from project_lens.cloudflare.auth import store_api_token as store_cloudflare_token
 from project_lens.config import dashboard_path, reports_dir
 from project_lens.dashboard import DEFAULT_SERVE_PORT, render_dashboard_html
 from project_lens.dashboard_data import collect_dashboard_rows
@@ -285,7 +289,8 @@ def creds() -> None:
 
 
 @creds.command("init")
-@click.option("--provider", type=click.Choice(["google", "google-ads"]), required=True)
+@click.option("--provider", type=click.Choice(["google", "google-ads", "cloudflare"]), required=True)
+@click.option("--token", default=None, help="cloudflare 전용: API 토큰.")
 @click.option(
     "--developer-token",
     default=None,
@@ -302,13 +307,24 @@ def creds() -> None:
     help="google-ads 전용: --login-customer-id를 저장할 계정 프로필 (`lens creds check` 참고).",
 )
 def creds_init(
-    provider: str, developer_token: str | None, login_customer_id: str | None, profile: str
+    provider: str,
+    token: str | None,
+    developer_token: str | None,
+    login_customer_id: str | None,
+    profile: str,
 ) -> None:
     """PROVIDER 인증을 최초 1회 수행하고 OS 키체인에 저장합니다."""
 
     if provider == "google":
         run_oauth_flow()
         click.echo("Google 인증 완료. 자격증명은 OS 키체인에 저장되었습니다.")
+        return
+
+    if provider == "cloudflare":
+        if not token:
+            raise click.ClickException("cloudflare 인증에는 --token이 필요합니다.")
+        store_cloudflare_token(token)
+        click.echo("Cloudflare API 토큰을 OS 키체인에 저장했습니다.")
         return
 
     if provider == "google-ads":
@@ -333,6 +349,7 @@ def creds_check() -> None:
     settings = load_settings()
     click.echo(f"google oauth: {'ok' if has_stored_credentials() else 'missing'}")
     click.echo(f"google ads developer token: {'ok' if has_ads_developer_token() else 'missing'}")
+    click.echo(f"cloudflare api token: {'ok' if has_cloudflare_token() else 'missing'}")
     click.echo(f"기본 프로필: {settings.default_profile}")
     click.echo("프로필:")
     for name, profile in settings.profiles.items():
@@ -359,6 +376,63 @@ def creds_accounts() -> None:
     click.echo("GTM 계정:")
     for account in gtm.list_accounts(gtm.build_client(credentials)):
         click.echo(f"  {account.id}  {account.name}")
+
+
+@main.group()
+def cloudflare() -> None:
+    """Cloudflare DNS/Tunnel 관리."""
+
+
+@cloudflare.command("tunnel-route")
+@click.argument("hostname")
+@click.argument("service")
+@click.option("--tunnel-name", default=None, help="터널이 여러 개면 이름으로 지정 (생략하면 1개만 있어야 함).")
+def cloudflare_tunnel_route(hostname: str, service: str, tunnel_name: str | None) -> None:
+    """HOSTNAME(예: boj.xn--hy1by51c.kr)을 Cloudflare Tunnel로 SERVICE(예: http://boj-archive.boj-archive.svc.cluster.local:80)에 라우팅합니다.
+
+    DNS CNAME 레코드(터널의 <tunnel-id>.cfargotunnel.com, proxied)와 터널의 public
+    hostname ingress 규칙을 함께 설정합니다.
+    """
+
+    token = load_cloudflare_token()
+
+    accounts = cf_client.list_accounts(token)
+    if not accounts:
+        raise click.ClickException("토큰으로 접근 가능한 Cloudflare 계정이 없습니다.")
+    if len(accounts) > 1:
+        raise click.ClickException(
+            f"계정이 여러 개입니다: {', '.join(a.name for a in accounts)}. 아직 자동 선택을 지원하지 않습니다."
+        )
+    account = accounts[0]
+
+    tunnels = cf_client.list_tunnels(token, account.id)
+    if tunnel_name:
+        tunnels = [t for t in tunnels if t.name == tunnel_name]
+    if not tunnels:
+        raise click.ClickException("조건에 맞는 터널을 찾지 못했습니다.")
+    if len(tunnels) > 1:
+        raise click.ClickException(
+            f"터널이 여러 개입니다: {', '.join(t.name for t in tunnels)}. --tunnel-name으로 지정하세요."
+        )
+    tunnel = tunnels[0]
+
+    zone_name = ".".join(hostname.split(".")[-2:])
+    zone = cf_client.get_zone(token, zone_name)
+
+    dns_record = cf_client.upsert_dns_record(
+        token,
+        zone.id,
+        record_type="CNAME",
+        name=hostname,
+        content=f"{tunnel.id}.cfargotunnel.com",
+        proxied=True,
+    )
+    click.echo(f"DNS: {hostname} → {tunnel.id}.cfargotunnel.com (record {dns_record['id']})")
+
+    cf_client.add_tunnel_public_hostname(
+        token, account.id, tunnel.id, hostname=hostname, service=service
+    )
+    click.echo(f"Tunnel ingress: {hostname} → {service}")
 
 
 @creds.command("set-accounts")
