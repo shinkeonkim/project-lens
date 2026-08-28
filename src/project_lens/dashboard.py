@@ -33,6 +33,8 @@ class DashboardRow:
     gtm_console_url: str | None
     ga4_active_users_7d: str | None
     ga4_sessions_7d: str | None
+    site_health_status: str = "unknown"  # "up" | "down" | "error" | "unknown"
+    site_health_detail: str | None = None
 
 
 DEFAULT_SERVE_PORT = 8765
@@ -46,6 +48,7 @@ def render_dashboard_html(
     needs_attention = sum(1 for r in rows if r.status == "needs_attention")
     merged = sum(1 for r in rows if r.pr_state == "MERGED")
     open_prs = sum(1 for r in rows if r.pr_state == "OPEN")
+    sites_down = sum(1 for r in rows if r.site_health_status == "down")
 
     ga4_rows = [r for r in rows if r.ga4_active_users_7d is not None]
     total_active_users = sum(int(r.ga4_active_users_7d) for r in ga4_rows)
@@ -108,6 +111,7 @@ async function refreshDashboard() {{
   <div class="stat warn"><span class="stat-value">{needs_attention}</span><span class="stat-label">확인 필요</span></div>
   <div class="stat"><span class="stat-value">{merged}</span><span class="stat-label">PR 머지됨</span></div>
   <div class="stat"><span class="stat-value">{open_prs}</span><span class="stat-label">PR 대기</span></div>
+  <div class="stat {'warn' if sites_down else ''}"><span class="stat-value">{sites_down}</span><span class="stat-label">사이트 응답 없음</span></div>
   {ga4_totals_stats}
 </section>
 
@@ -153,12 +157,24 @@ def _render_ga4_summary_table(ga4_rows: list[DashboardRow]) -> str:
 </section>"""
 
 
+_HEALTH_LABELS = {
+    "up": ("● 정상", "health-up"),
+    "down": ("● 응답 없음", "health-down"),
+    "unknown": ("", "health-unknown"),
+}
+
+
 def _render_card(r: DashboardRow) -> str:
     label, css_class = _STATUS_LABELS.get(r.status, (r.status, "muted"))
     site_link = (
         f'<a href="{html.escape(r.site_url)}" target="_blank" rel="noopener">{html.escape(r.site_url)}</a>'
         if r.site_url
         else '<span class="muted-text">사이트 URL 없음</span>'
+    )
+    health_text, health_class = _HEALTH_LABELS.get(r.site_health_status, ("", "health-unknown"))
+    health_title = f' title="{html.escape(r.site_health_detail)}"' if r.site_health_detail else ""
+    health_badge = (
+        f'<span class="health {health_class}"{health_title}>{health_text}</span>' if health_text else ""
     )
 
     if r.pr_url:
@@ -198,7 +214,7 @@ def _render_card(r: DashboardRow) -> str:
     <h2><a href="{html.escape(r.github_url)}" target="_blank" rel="noopener">{html.escape(r.slug)}</a></h2>
     <span class="badge {css_class}">{html.escape(label)}</span>
   </div>
-  <div class="site">{site_link}</div>
+  <div class="site">{site_link} {health_badge}</div>
   <div class="deployment-type">{html.escape(r.deployment_type)}</div>
   {ga_html}
   <div class="badges">{pr_html}</div>
@@ -312,6 +328,9 @@ header h1 { margin-bottom: 0.25rem; font-size: 1.5rem; }
 .card-head h2 a { color: inherit; text-decoration: none; }
 .card-head h2 a:hover { text-decoration: underline; }
 .site { margin: 0.4rem 0; font-size: 0.85rem; overflow-wrap: anywhere; }
+.health { font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+.health-up { color: var(--ok); }
+.health-down { color: var(--warn); }
 .deployment-type { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.5rem; }
 .ga4 { font-size: 0.85rem; margin: 0.4rem 0; }
 .badges { margin: 0.5rem 0; }

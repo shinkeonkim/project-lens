@@ -92,6 +92,42 @@ def test_render_ga4_summary_table_sorted_by_active_users_desc():
     assert "<span class=\"stat-value\">51</span>" in html  # 합계 방문자(7일) = 1 + 50
 
 
+def test_render_shows_up_health_badge():
+    html = render_dashboard_html(
+        [_row(site_health_status="up")], generated_at="2026-08-28T00:00:00+00:00"
+    )
+    assert "health-up" in html
+    assert "정상" in html
+
+
+def test_render_shows_down_health_badge_with_detail_tooltip():
+    html = render_dashboard_html(
+        [_row(site_health_status="down", site_health_detail="Connection refused")],
+        generated_at="2026-08-28T00:00:00+00:00",
+    )
+    assert "health-down" in html
+    assert "응답 없음" in html
+    assert 'title="Connection refused"' in html
+
+
+def test_render_omits_health_badge_when_unknown():
+    html = render_dashboard_html(
+        [_row(site_health_status="unknown")], generated_at="2026-08-28T00:00:00+00:00"
+    )
+    assert 'class="health health-up"' not in html
+    assert 'class="health health-down"' not in html
+
+
+def test_render_counts_sites_down_stat():
+    rows = [
+        _row(slug="a", site_health_status="down"),
+        _row(slug="b", site_health_status="up"),
+        _row(slug="c", site_health_status="down"),
+    ]
+    html = render_dashboard_html(rows, generated_at="2026-08-28T00:00:00+00:00")
+    assert '<span class="stat-value">2</span><span class="stat-label">사이트 응답 없음</span>' in html
+
+
 def test_render_card_title_links_to_github():
     html = render_dashboard_html([_row()], generated_at="2026-08-28T00:00:00+00:00")
     assert '<h2><a href="https://github.com/kokoa-lab/dice-art"' in html

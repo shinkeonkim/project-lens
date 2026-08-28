@@ -24,6 +24,7 @@ from project_lens.dashboard import DashboardRow
 from project_lens.github.client import pr_state
 from project_lens.google import ga4_reporting
 from project_lens.google.auth import load_credentials
+from project_lens.health import check_site_health
 from project_lens.registry.models import Project, TrackingConfig
 from project_lens.registry.repository import get_latest_pr_run, get_latest_run, get_tracking_config, list_projects
 
@@ -82,6 +83,7 @@ def _build_row(snapshot: _ProjectSnapshot, data_client) -> DashboardRow:
     tracking = snapshot.tracking
 
     pr_state_value = pr_state(snapshot.pr_url) if snapshot.pr_url else None
+    site_health = check_site_health(proj.site_url)
 
     gtm_console_url = None
     if tracking and tracking.gtm_account_id and tracking.gtm_container_id:
@@ -116,4 +118,6 @@ def _build_row(snapshot: _ProjectSnapshot, data_client) -> DashboardRow:
         gtm_console_url=gtm_console_url,
         ga4_active_users_7d=ga4_active_users,
         ga4_sessions_7d=ga4_sessions,
+        site_health_status=site_health.status,
+        site_health_detail=site_health.detail,
     )

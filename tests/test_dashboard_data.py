@@ -102,3 +102,20 @@ def test_collect_dashboard_rows_survives_ga4_failure_for_one_project(conn, monke
 def test_collect_dashboard_rows_empty_registry_returns_empty_list(conn, monkeypatch):
     monkeypatch.setattr(dashboard_data, "pr_state", lambda url: None)
     assert dashboard_data.collect_dashboard_rows(conn, offline=True) == []
+
+
+def test_collect_dashboard_rows_includes_site_health(conn, monkeypatch):
+    from project_lens.health import SiteHealth
+
+    _add_project(conn)
+    monkeypatch.setattr(dashboard_data, "pr_state", lambda url: None)
+    monkeypatch.setattr(
+        dashboard_data,
+        "check_site_health",
+        lambda url: SiteHealth(status="down", detail="Connection refused"),
+    )
+
+    rows = dashboard_data.collect_dashboard_rows(conn, offline=True)
+
+    assert rows[0].site_health_status == "down"
+    assert rows[0].site_health_detail == "Connection refused"
