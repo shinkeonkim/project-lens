@@ -5,6 +5,10 @@ credentials/
 *.sqlite3
 *.jsonl
 
+# 비밀값은 아니지만 공개하기엔 애매한 정보(실제 GA4/GTM ID, 배포 도메인, 추적 중인
+# 개인/조직 프로젝트 전체 목록) — 로컬 참고용으로만 둔다.
+docs/private/
+
 # Python
 __pycache__/
 *.pyc
