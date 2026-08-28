@@ -870,7 +870,10 @@ def _handle_new_change(conn, proj, gtm_id: str, change_set, repo_path, run_id, y
     configure_remote = getattr(adapter, "configure_remote", None)
     if configure_remote is not None:
         remote_summary = configure_remote(
-            github_org=proj.github_org, github_repo=proj.github_repo, gtm_id=gtm_id
+            github_org=proj.github_org,
+            github_repo=proj.github_repo,
+            gtm_id=gtm_id,
+            changed_files=change_set.changed_files,
         )
 
     branch = f"project-lens/add-gtm-tracking-{run_id}"

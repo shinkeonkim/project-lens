@@ -224,12 +224,28 @@ class OhMyHomelabAdapter:
             ),
         )
 
-    def configure_remote(self, *, github_org: str, github_repo: str, gtm_id: str) -> str:
+    def configure_remote(
+        self,
+        *,
+        github_org: str,
+        github_repo: str,
+        gtm_id: str,
+        changed_files: tuple[str, ...] = (),
+    ) -> str | None:
         """codekr CI가 빌드 시점에 읽는 GitHub Actions 저장소 변수를 설정한다.
 
         --yes일 때만 호출해야 한다 — 실제 GitHub 상태를 바꾸는 유일한 지점이라
         dry-run에서는 절대 호출하면 안 된다.
+
+        `_inject_codekr_style()`가 실제로 실행됐을 때(= `_COMPONENT_PATH`가 이번에
+        바뀐 파일 목록에 있을 때)만 의미가 있다 — 범용 Next.js 폴백은 ID를 소스에
+        직접 박아 넣으므로 이 변수를 아무도 읽지 않는다. 안 맞으면 아무 것도 하지
+        않고 None을 반환한다(aws-study-site에서 실제로 쓸모없는 변수가 잘못
+        설정됐던 버그의 회귀 방지).
         """
+
+        if _COMPONENT_PATH not in changed_files:
+            return None
 
         result = subprocess.run(
             [

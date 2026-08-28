@@ -226,7 +226,10 @@ def test_configure_remote_success(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     summary = OhMyHomelabAdapter().configure_remote(
-        github_org="shinkeonkim", github_repo="codekr", gtm_id="GTM-ABC1234"
+        github_org="shinkeonkim",
+        github_repo="codekr",
+        gtm_id="GTM-ABC1234",
+        changed_files=("apps/web/src/shared/analytics/GoogleTagManager.tsx",),
     )
 
     assert "NEXT_PUBLIC_GTM_ID" in summary
@@ -253,5 +256,28 @@ def test_configure_remote_failure_raises_deploy_error(monkeypatch, tmp_path):
 
     with pytest.raises(DeployError):
         OhMyHomelabAdapter().configure_remote(
-            github_org="shinkeonkim", github_repo="codekr", gtm_id="GTM-ABC1234"
+            github_org="shinkeonkim",
+            github_repo="codekr",
+            gtm_id="GTM-ABC1234",
+            changed_files=("apps/web/src/shared/analytics/GoogleTagManager.tsx",),
         )
+
+
+def test_configure_remote_skips_when_codekr_component_not_wired(monkeypatch, tmp_path):
+    """범용 Next.js 폴백(aws-study-site 등)이 실행된 경우 — ID를 소스에 직접 박아
+
+    넣으므로 NEXT_PUBLIC_GTM_ID 변수를 아무도 안 읽는다. 실제로 이 변수가 쓸모없이
+    설정됐던 버그의 회귀 테스트."""
+
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a))
+
+    summary = OhMyHomelabAdapter().configure_remote(
+        github_org="kokoa-study-room",
+        github_repo="aws-study-site",
+        gtm_id="GTM-ABC1234",
+        changed_files=("apps/web/src/app/layout.tsx",),
+    )
+
+    assert summary is None
+    assert calls == []
