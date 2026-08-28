@@ -51,6 +51,7 @@ from project_lens.registry.repository import (
     get_run,
     get_tracking_config,
     list_projects,
+    set_ads_policy,
     set_project_status,
     set_site_url,
     start_run,
@@ -210,6 +211,28 @@ def project_set_site_url(slug: str, site_url: str) -> None:
         conn.close()
 
     click.echo(f"{slug}의 site_url을 설정했습니다: {site_url}")
+
+
+@project.command("set-ads-policy")
+@click.argument("slug")
+@click.argument("policy", type=click.Choice(["allowed", "excluded", "unreviewed"]))
+def project_set_ads_policy(slug: str, policy: str) -> None:
+    """SLUG의 광고(AdSense) 게재 정책을 설정합니다.
+
+    기본값은 unreviewed — ads.txt/GTM 광고 태그 자동화는 allowed로 명시된
+    프로젝트에만 적용됩니다. excluded는 포트폴리오/이력서처럼 절대 광고를
+    붙이면 안 되는 사이트에 씁니다.
+    """
+
+    conn = connect()
+    try:
+        if get_project(conn, slug) is None:
+            raise click.ClickException(f"등록되지 않은 프로젝트입니다: {slug}")
+        set_ads_policy(conn, slug, policy)
+    finally:
+        conn.close()
+
+    click.echo(f"{slug}의 ads_policy를 설정했습니다: {policy}")
 
 
 _TROUBLESHOOTING_HINTS = {

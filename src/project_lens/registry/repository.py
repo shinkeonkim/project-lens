@@ -76,6 +76,21 @@ def set_site_url(conn: sqlite3.Connection, slug: str, site_url: str) -> None:
     conn.commit()
 
 
+def set_ads_policy(conn: sqlite3.Connection, slug: str, ads_policy: str) -> None:
+    """ads_policy는 'allowed' | 'excluded' | 'unreviewed' 중 하나여야 한다(CHECK 제약).
+
+    새로 등록되는 프로젝트는 기본값 'unreviewed'다 — 검토 없이 자동으로 광고 대상에
+    들어가지 않게 하기 위해 의도적으로 이렇게 만들었다(포트폴리오/이력서 같은 개인
+    브랜드 사이트에 실수로 광고가 붙으면 안 되기 때문).
+    """
+
+    conn.execute(
+        "UPDATE projects SET ads_policy = ?, updated_at = ? WHERE slug = ?",
+        (ads_policy, _now(), slug),
+    )
+    conn.commit()
+
+
 def get_project(conn: sqlite3.Connection, slug: str) -> Project | None:
     row = conn.execute("SELECT * FROM projects WHERE slug = ?", (slug,)).fetchone()
     return Project.from_row(row) if row else None

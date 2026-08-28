@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from project_lens.registry.db import connect
@@ -11,6 +13,7 @@ from project_lens.registry.repository import (
     get_run,
     get_tracking_config,
     list_projects,
+    set_ads_policy,
     set_project_status,
     set_site_url,
     slugify,
@@ -208,6 +211,47 @@ def test_set_site_url(conn):
     set_site_url(conn, record.slug, "https://dice-art.example.com")
 
     assert get_project(conn, record.slug).site_url == "https://dice-art.example.com"
+
+
+def test_new_project_defaults_to_ads_unreviewed(conn):
+    record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+    )
+    assert record.ads_policy == "unreviewed"
+
+
+def test_set_ads_policy(conn):
+    record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+    )
+
+    set_ads_policy(conn, record.slug, "excluded")
+
+    assert get_project(conn, record.slug).ads_policy == "excluded"
+
+
+def test_set_ads_policy_rejects_invalid_value(conn):
+    record = upsert_project(
+        conn,
+        github_url="https://github.com/kokoa-lab/dice-art",
+        github_org="kokoa-lab",
+        github_repo="dice-art",
+        visibility="public",
+        default_branch="main",
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        set_ads_policy(conn, record.slug, "bogus")
 
 
 def test_upsert_project_site_url_does_not_clobber_existing(conn):

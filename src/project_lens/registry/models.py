@@ -21,6 +21,7 @@ class Project:
     created_at: str
     updated_at: str
     site_url: str | None = None
+    ads_policy: str = "unreviewed"  # "allowed" | "excluded" | "unreviewed"
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Project":
