@@ -396,16 +396,10 @@ def cloudflare_tunnel_route(hostname: str, service: str, tunnel_name: str | None
 
     token = load_cloudflare_token()
 
-    accounts = cf_client.list_accounts(token)
-    if not accounts:
-        raise click.ClickException("토큰으로 접근 가능한 Cloudflare 계정이 없습니다.")
-    if len(accounts) > 1:
-        raise click.ClickException(
-            f"계정이 여러 개입니다: {', '.join(a.name for a in accounts)}. 아직 자동 선택을 지원하지 않습니다."
-        )
-    account = accounts[0]
+    zone_name = ".".join(hostname.split(".")[-2:])
+    zone = cf_client.get_zone(token, zone_name)
 
-    tunnels = cf_client.list_tunnels(token, account.id)
+    tunnels = cf_client.list_tunnels(token, zone.account_id)
     if tunnel_name:
         tunnels = [t for t in tunnels if t.name == tunnel_name]
     if not tunnels:
@@ -415,9 +409,6 @@ def cloudflare_tunnel_route(hostname: str, service: str, tunnel_name: str | None
             f"터널이 여러 개입니다: {', '.join(t.name for t in tunnels)}. --tunnel-name으로 지정하세요."
         )
     tunnel = tunnels[0]
-
-    zone_name = ".".join(hostname.split(".")[-2:])
-    zone = cf_client.get_zone(token, zone_name)
 
     dns_record = cf_client.upsert_dns_record(
         token,
@@ -430,7 +421,7 @@ def cloudflare_tunnel_route(hostname: str, service: str, tunnel_name: str | None
     click.echo(f"DNS: {hostname} → {tunnel.id}.cfargotunnel.com (record {dns_record['id']})")
 
     cf_client.add_tunnel_public_hostname(
-        token, account.id, tunnel.id, hostname=hostname, service=service
+        token, zone.account_id, tunnel.id, hostname=hostname, service=service
     )
     click.echo(f"Tunnel ingress: {hostname} → {service}")
 

@@ -30,11 +30,22 @@ def _ok(result):
 def test_get_zone_returns_first_match(monkeypatch):
     monkeypatch.setattr(
         "urllib.request.urlopen",
-        lambda req, timeout: _FakeResponse(_ok([{"id": "zone123", "name": "xn--hy1by51c.kr"}])),
+        lambda req, timeout: _FakeResponse(
+            _ok(
+                [
+                    {
+                        "id": "zone123",
+                        "name": "xn--hy1by51c.kr",
+                        "account": {"id": "acct123", "name": "test"},
+                    }
+                ]
+            )
+        ),
     )
     zone = client.get_zone("tok", "xn--hy1by51c.kr")
     assert zone.id == "zone123"
     assert zone.name == "xn--hy1by51c.kr"
+    assert zone.account_id == "acct123"
 
 
 def test_get_zone_raises_when_not_found(monkeypatch):

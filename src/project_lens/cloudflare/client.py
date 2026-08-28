@@ -56,6 +56,7 @@ def _request(token: str, method: str, path: str, body: dict | None = None) -> di
 class Zone:
     id: str
     name: str
+    account_id: str
 
 
 def get_zone(token: str, zone_name: str) -> Zone:
@@ -63,7 +64,8 @@ def get_zone(token: str, zone_name: str) -> Zone:
     results = payload.get("result", [])
     if not results:
         raise CloudflareAPIError(f"존(zone)을 찾을 수 없습니다: {zone_name}")
-    return Zone(id=results[0]["id"], name=results[0]["name"])
+    zone = results[0]
+    return Zone(id=zone["id"], name=zone["name"], account_id=zone["account"]["id"])
 
 
 def list_dns_records(token: str, zone_id: str, *, name: str | None = None) -> list[dict]:
