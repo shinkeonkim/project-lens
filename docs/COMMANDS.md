@@ -21,6 +21,21 @@
 | `/lens-report <slug> [--range=7d\|30d]` | `lens track report <slug> --range ...` | GA4 방문자/세션/이탈률 + (연결 시) Ads 노출/클릭/CTR/비용/전환 요약. 읽기 전용 | ✅ Phase 3, 6 |
 | `/lens-remove <slug>` | `lens project remove <slug>` | soft delete (status=`archived`), 이력은 보존 | ⏳ 미구현 |
 
+### CLI 전용 (아직 슬래시 커맨드 없음)
+
+아래는 `lens` CLI로만 쓸 수 있습니다 — 자주 쓰게 되면 그때 커맨드 파일을 추가할 것.
+
+| CLI | 설명 |
+|---|---|
+| `lens project set-ads-policy <slug> <allowed\|excluded\|unreviewed>` | 프로젝트별 광고(AdSense) 게재 정책 설정 |
+| `lens track report-all [--range=7d\|30d]` | 등록된 전체 프로젝트의 GA4 리포트를 일괄 조회, 개별 실패해도 계속 진행 |
+| `lens dashboard [--serve] [--offline]` | 로컬 대시보드 생성/서빙(헬스체크, GA4 요약, PR 상태) |
+| `lens readme-audit` / `license-audit` / `vuln-audit` | 등록된 프로젝트 전체를 README/라이선스/Dependabot 취약점 기준으로 점검 |
+| `lens ads-sync --publisher-id <ID> [--yes]` | `ads_policy=allowed`인 프로젝트에 `ads.txt` + GTM AdSense 태그 일괄 적용 |
+| `lens adsense-status` | 연결된 AdSense 계정/사이트 승인 상태 조회 |
+| `lens cloudflare tunnel-route <hostname> <service>` | 새 서브도메인을 Cloudflare DNS + Tunnel에 라우팅 |
+| `lens creds init --provider cloudflare --token <TOKEN>` | Cloudflare API 토큰을 OS 키체인에 저장 |
+
 ## 설계 원칙
 
 - **하나의 커맨드 = 하나의 CLI 서브커맨드 호출.** 커맨드 마크다운 안에서 여러 단계를 순차
