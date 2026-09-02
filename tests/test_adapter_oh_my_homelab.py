@@ -79,6 +79,11 @@ def test_detect_true_when_deploy_charts_dir_exists(tmp_path):
     assert OhMyHomelabAdapter().detect(tmp_path) is True
 
 
+def test_detect_true_when_deploy_kubernetes_dir_exists(tmp_path):
+    (tmp_path / "deploy" / "kubernetes").mkdir(parents=True)
+    assert OhMyHomelabAdapter().detect(tmp_path) is True
+
+
 def test_detect_false_without_deploy_charts_dir(tmp_path):
     assert OhMyHomelabAdapter().detect(tmp_path) is False
 
@@ -214,6 +219,46 @@ def test_inject_tracking_falls_back_to_generic_nextjs_when_not_codekr_shaped(tmp
     assert "googletagmanager.com/ns.html" in layout
     # codekr 전용 컴포넌트 파일은 안 만든다 — 값을 직접 하드코딩하는 경로라서.
     assert not (tmp_path / "apps/web/src/shared/analytics").exists()
+
+
+def test_inject_tracking_falls_back_to_frontend_subdir_static_site(tmp_path):
+    """oh-my-persona 사례의 회귀 테스트: Next.js가 아니라 Vite+React 프론트엔드를
+
+    backend/frontend로 분리한 레포. package.json이 있는 frontend/ 서브디렉터리를
+    프론트 프로젝트 루트로 보고 그 안의 index.html에 직접 삽입해야 한다."""
+
+    (tmp_path / "deploy" / "kubernetes").mkdir(parents=True)
+    (tmp_path / "backend").mkdir(parents=True)
+    (tmp_path / "backend" / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+
+    frontend = tmp_path / "frontend"
+    frontend.mkdir(parents=True)
+    (frontend / "package.json").write_text('{"name": "frontend"}', encoding="utf-8")
+    (frontend / "index.html").write_text(
+        "<!doctype html>\n<html>\n  <head>\n    <title>persona</title>\n  </head>\n"
+        "  <body>\n    <div id=\"root\"></div>\n  </body>\n</html>\n",
+        encoding="utf-8",
+    )
+
+    # oh-my-persona처럼 수집된 원문 스냅샷 HTML이 레포에 섞여 있어도 무시해야 한다.
+    scraped = tmp_path / "data" / "raw" / "SRC-0001" / "github-tree"
+    scraped.mkdir(parents=True)
+    (scraped / "index.html").write_text(
+        "<html><head><title>scraped</title></head><body>scraped</body></html>",
+        encoding="utf-8",
+    )
+
+    change_set = OhMyHomelabAdapter().inject_tracking(tmp_path, "GTM-ABC1234")
+
+    assert change_set is not None
+    assert change_set.already_present is False
+    assert change_set.changed_files == ("frontend/index.html",)
+
+    frontend_html = (frontend / "index.html").read_text()
+    assert "GTM-ABC1234" in frontend_html
+
+    scraped_html = (scraped / "index.html").read_text()
+    assert "GTM-ABC1234" not in scraped_html
 
 
 def test_configure_remote_success(monkeypatch, tmp_path):

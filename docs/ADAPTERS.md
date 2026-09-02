@@ -88,6 +88,8 @@ shinkeonkim: my-portfolio, my-cv, my-resume
 
 레포 루트에 `deploy/charts/` 디렉터리가 있으면 매치합니다 (oh-my-homelab의
 `docs/service-dev-guide/`가 문서화한 "새 서비스는 자기 레포에 Helm 차트를 둔다" 관례).
+`deploy/kubernetes/`(raw manifest, Helm을 안 쓰는 레포 — 예: `oh-my-persona`)도 같은 신호로
+매치합니다.
 
 ### inject_tracking()
 
@@ -102,13 +104,20 @@ CloudflareWorkersAdapter처럼 정규식 기반 범용 패턴이 아니라, 실�
 4. `.env.example` — 새 환경변수 문서화
 5. `.github/workflows/ci.yml` — `web` 이미지 빌드에만 `build-args: NEXT_PUBLIC_GTM_ID=...` 추가
 
-앵커 문자열이 하나라도 안 맞으면(레이아웃 파일이 없거나 내용이 달라졌으면) None을 반환해
-이슈 생성 폴백으로 넘어갑니다 — 다른 구조를 추측해서 잘못 고치지 않습니다.
+앵커 문자열이 하나라도 안 맞으면(레이아웃 파일이 없거나 내용이 달라졌으면) 범용 Next.js App
+Router 폴백을 시도하고, 그것도 안 맞으면(Next.js가 아닌 레포 — 예: `oh-my-persona`의
+Vite+React 프론트엔드) `package.json`이 있는 최상위 서브디렉터리를 프론트 프로젝트 루트로
+보고 `_static_site.py`의 범용 정적 사이트 전략을 그 안에서만 시도합니다. 레포 루트를 그대로
+재귀 탐색하지 않는 이유: `oh-my-persona`처럼 리서치 데이터를 함께 관리하는 레포는
+`data/raw/**/index.html` 같은 수집된 원문 스냅샷이 섞여 있을 수 있어, 범위를 좁히지 않으면
+무관한 HTML 파일에 잘못 삽입될 위험이 있습니다. 이 셋 다 안 맞으면 None을 반환해 이슈 생성
+폴백으로 넘어갑니다 — 다른 구조를 추측해서 잘못 고치지 않습니다.
 
-값 자체(GTM ID)는 어떤 파일에도 하드코딩하지 않습니다. `configure_remote()`가 `--yes`일
-때만 `gh variable set NEXT_PUBLIC_GTM_ID --repo <org>/<repo>`로 실제 값을 설정합니다 —
-dry-run에서는 절대 호출되지 않습니다(실제 GitHub 상태를 바꾸는 유일한 지점이라 함부로
-호출하면 안 됨).
+값 자체(GTM ID)는 codekr 정밀 패치 경로에서만 하드코딩하지 않습니다. `configure_remote()`가
+`--yes`일 때만 `gh variable set NEXT_PUBLIC_GTM_ID --repo <org>/<repo>`로 실제 값을
+설정합니다 — dry-run에서는 절대 호출되지 않습니다(실제 GitHub 상태를 바꾸는 유일한 지점이라
+함부로 호출하면 안 됨). 범용 Next.js/정적 사이트 폴백 경로는 다른 정적 사이트 어댑터와
+동일하게 값을 소스에 직접 하드코딩합니다(`configure_remote()`는 호출되지 않음).
 
 ### deploy()
 

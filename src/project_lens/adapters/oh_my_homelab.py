@@ -1,6 +1,9 @@
 """oh-my-homelab(Kubernetes GitOps) 배포 어댑터 (docs/ADAPTERS.md).
 
-두 단계로 시도한다:
+`detect()`는 Helm 차트(`deploy/charts`)뿐 아니라 raw manifest(`deploy/kubernetes`,
+예: `oh-my-persona`)도 인식한다 — 둘 다 이 개인 홈랩 인프라로 배포된다는 같은 신호다.
+
+세 단계로 시도한다:
 
 1. `_inject_codekr_style()` — 실제로 조사한 `shinkeonkim/codekr` 레포 구조(Next.js
    App Router + Feature-Sliced Design + 빌드 시점에 굳는 `NEXT_PUBLIC_*`)에 맞춘
@@ -20,16 +23,25 @@
    더 단순한 방식을 쓴다. 그마저도 못 찾으면 None을 반환해 호출자가 이슈 생성
    폴백을 쓰게 한다 — 무리하게 다른 구조를 추측해서 잘못 고치지 않기 위함이다
    (docs/ADAPTERS.md 원칙).
+
+3. Next.js도 아니면(예: `oh-my-persona` — FastAPI 백엔드 + Vite/React 프론트엔드를
+   `backend/`, `frontend/`로 분리) `package.json`이 있는 최상위 서브디렉터리를 프론트
+   프로젝트 루트로 보고 `_static_site.py`의 범용 정적 사이트 전략(정적 HTML/Docusaurus/
+   Astro Starlight/Next.js)을 그 안에서만 시도한다. 레포 루트를 그대로 재귀 탐색하지
+   않는 이유: `oh-my-persona`의 `data/raw/**/index.html`처럼 수집한 원문 스냅샷이
+   레포에 섞여 있을 수 있어, 무관한 HTML 파일에 잘못 삽입될 위험이 있다.
 """
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
 from project_lens.adapters._static_site import (
     NEXTJS_LAYOUT_CANDIDATES,
     inject_nextjs_app_router_tracking,
+    inject_static_site_tracking,
 )
 from project_lens.adapters.base import ChangeSet
 from project_lens.errors import DeployError
@@ -115,7 +127,9 @@ class OhMyHomelabAdapter:
     name = "oh_my_homelab"
 
     def detect(self, repo_path: Path) -> bool:
-        return (repo_path / "deploy" / "charts").is_dir()
+        return (repo_path / "deploy" / "charts").is_dir() or (
+            repo_path / "deploy" / "kubernetes"
+        ).is_dir()
 
     def inject_tracking(self, repo_path: Path, gtm_id: str) -> ChangeSet | None:
         component_path = repo_path / _COMPONENT_PATH
@@ -145,6 +159,32 @@ class OhMyHomelabAdapter:
             if layout_path.exists():
                 return inject_nextjs_app_router_tracking(repo_path, layout_path, gtm_id)
 
+        # Next.js도 아닌 homelab 레포(예: oh-my-persona — Vite+React 프론트엔드를
+        # backend/frontend로 분리하고 raw k8s manifest로 배포). 이런 레포는 이미지 하나를
+        # 여러 배포가 공유할 필요가 없으니 codekr처럼 CI 변수로 값을 주입할 이유가 없다
+        # — 다른 정적 사이트 어댑터와 동일하게 값을 소스에 직접 박는다.
+        # 레포 루트를 그대로 재귀 탐색하면 리서치/데이터 레포(oh-my-persona의
+        # data/raw/**/index.html처럼 수집된 원문 스냅샷)의 무관한 HTML 파일을 잘못
+        # 집어들 수 있어, package.json이 있는 최상위 서브디렉터리(=실제 프론트엔드
+        # 프로젝트 루트)로 좁힌 뒤에만 정적 사이트 전략을 시도한다.
+        frontend_root = self._find_frontend_root(repo_path)
+        if frontend_root is not None:
+            return inject_static_site_tracking(repo_path, frontend_root, gtm_id)
+
+        return None
+
+    def _find_frontend_root(self, repo_path: Path) -> Path | None:
+        for candidate in sorted(
+            p for p in repo_path.iterdir() if p.is_dir() and not p.name.startswith(".")
+        ):
+            package_json = candidate / "package.json"
+            if not package_json.exists():
+                continue
+            try:
+                json.loads(package_json.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            return candidate
         return None
 
     def _inject_codekr_style(self, repo_path: Path, gtm_id: str) -> ChangeSet | None:
